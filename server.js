@@ -28,7 +28,6 @@ app.use(express.static('.'));
 
 const joueurs = {};           // { socketId: { pseudo, niveau, score, enLigne, enDuel, salleId, victoires, defaites, egalites } }
 const salles = {};            // { salleId: { joueur1, joueur2, questions, scores, reponses, indexQuestion, terminee, timer } }
-const partiesEnAttente = [];  // Liste des joueurs en attente de duel
 
 // ========================================
 // 💾 SAUVEGARDE DES CLASSEMENTS
@@ -225,10 +224,12 @@ io.on('connection', (socket) => {
 
         // Passer à la question suivante
         if (indexQuestion < salle.questions.length - 1) {
-            // Notifier les deux joueurs pour la question suivante
+            // METTRE À JOUR L'INDEX DANS LA SALLE (CORRECTION ICI)
+            salle.indexQuestion = indexQuestion + 1;
+
             setTimeout(() => {
                 if (!salle.terminee) {
-                    const nextIndex = indexQuestion + 1;
+                    const nextIndex = salle.indexQuestion;
                     const nextQuestion = salle.questions[nextIndex];
                     io.to(salle.joueur1).emit('question_suivante', {
                         index: nextIndex,

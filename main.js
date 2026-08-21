@@ -930,7 +930,7 @@
         function connecterServeur() {
             const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
                 ? 'http://localhost:3000'
-                : window.location.origin;
+                : 'https://arysex-quiz-duel.onrender.com';
 
             socket = io(serverUrl);
             
@@ -1336,9 +1336,8 @@
             sauvegarderPartie();
             sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
-            if (socket) {
-                socket.emit('deconnexion');
-            }
+            
+            
         });
 
         // ========================================
