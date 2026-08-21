@@ -406,12 +406,13 @@
             // Connexion au serveur de duel
             connecterServeur();
 
-            setTimeout(demarrerNiveau, 500);
+            // NE PAS lancer le jeu ici, l'écran de transition s'en occupe !
+            
             console.log('✅ Jeu démarré avec:', pseudo);
         }
 
         // ========================================
-        // 🔥 BOUTON COMMENCER
+        // 🔥 BOUTON COMMENCER (Écran d'accueil)
         // ========================================
 
         if (welcomeBtn) {
@@ -419,17 +420,34 @@
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('🖱️ CLIC SUR LE BOUTON !');
+                
+                // On cache l'écran d'accueil et on affiche le jeu
                 lancerLeJeu();
+                
+                // On affiche l'écran de transition
+                document.getElementById('transitionOverlay').style.display = 'flex';
+                
                 return false;
             };
         }
 
-        if (welcomePseudo) {
-            welcomePseudo.onkeydown = function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    lancerLeJeu();
-                }
+        // ========================================
+        // 🔥 GESTION DE L'ÉCRAN DE TRANSITION
+        // ========================================
+
+        const transitionOverlay = document.getElementById('transitionOverlay');
+        const transitionBtn = document.getElementById('transitionBtn');
+
+        if (transitionBtn) {
+            transitionBtn.onclick = function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                // On cache l'écran de transition
+                transitionOverlay.style.display = 'none';
+                
+                // Et on lance vraiment les questions !
+                demarrerNiveau();
             };
         }
 
@@ -1324,8 +1342,10 @@
         const savedPseudo = localStorage.getItem('quiz_pseudo');
         if (savedPseudo && savedPseudo.trim().length > 0 && welcomePseudo) {
             welcomePseudo.value = savedPseudo;
-            setTimeout(lancerLeJeu, 500);
-        } else if (welcomeOverlay) {
+        }
+        
+        // On affiche TOUJOURS l'écran d'accueil pour laisser le choix au joueur
+        if (welcomeOverlay) {
             welcomeOverlay.style.display = 'flex';
             mainGame.style.display = 'none';
             mainFooter.style.display = 'none';
@@ -1336,8 +1356,6 @@
             sauvegarderPartie();
             sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
-            
-            
         });
 
         // ========================================
