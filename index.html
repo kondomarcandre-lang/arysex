@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -33,7 +34,8 @@
             box-sizing: border-box;
         }
 
-        html, body {
+        html,
+        body {
             height: 100%;
         }
 
@@ -113,6 +115,7 @@
         .spacer {
             height: 6px;
         }
+
         .spacer-sm {
             height: 4px;
         }
@@ -472,8 +475,15 @@
         }
 
         @keyframes pulse {
-            from { transform: scale(1); opacity: 1; }
-            to { transform: scale(1.15); opacity: 0.7; }
+            from {
+                transform: scale(1);
+                opacity: 1;
+            }
+
+            to {
+                transform: scale(1.15);
+                opacity: 0.7;
+            }
         }
 
         /* ===== RÉPONSES ===== */
@@ -975,9 +985,11 @@
         .classement-item .rank.gold {
             color: #fdcb6e;
         }
+
         .classement-item .rank.silver {
             color: #b2bec3;
         }
+
         .classement-item .rank.bronze {
             color: #e17055;
         }
@@ -1008,9 +1020,11 @@
         .classement-item .stats .victoires {
             color: #00b894;
         }
+
         .classement-item .stats .defaites {
             color: #ff6b6b;
         }
+
         .classement-item .stats .winrate {
             color: #4a6cf7;
             font-weight: 700;
@@ -1043,8 +1057,13 @@
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
         }
 
         .duel-container {
@@ -1061,8 +1080,15 @@
         }
 
         @keyframes slideUp {
-            from { transform: translateY(30px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
+            from {
+                transform: translateY(30px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
         }
 
         .duel-header-overlay {
@@ -1494,63 +1520,80 @@
                 padding: 10px 12px 8px 12px;
                 gap: 10px;
             }
+
             main {
                 padding: 14px 16px 12px 16px;
                 gap: 8px;
                 border-radius: 16px;
             }
+
             header h1 {
                 font-size: 22px;
             }
+
             header h2 {
                 font-size: 12px;
             }
+
             .duel-container {
                 padding: 20px 18px 16px 18px;
             }
+
             .duel-scores {
                 padding: 8px 10px;
                 gap: 4px;
             }
+
             .duel-joueur .duel-score {
                 font-size: 26px;
             }
+
             .duel-vs {
                 font-size: 20px;
                 padding: 0 8px;
             }
+
             .duel-text {
                 font-size: 15px;
             }
+
             .duel-timer {
                 font-size: 32px;
             }
+
             .duel-reponses-container {
                 grid-template-columns: 1fr 1fr;
                 gap: 6px;
             }
+
             .duel-reponses-container button {
                 font-size: 13px;
                 padding: 10px 12px;
             }
+
             .classement-item {
                 flex-wrap: wrap;
                 gap: 4px;
             }
+
             .classement-item .stats {
                 font-size: 10px;
                 gap: 6px;
             }
+
             .duel-item {
                 flex-wrap: wrap;
                 gap: 4px;
             }
+
             .duel-item .duel-infos {
                 font-size: 10px;
             }
+
             .classement-tabs {
                 gap: 4px;
             }
+
             .classement-tab {
                 font-size: 10px;
                 padding: 3px 10px;
@@ -1562,62 +1605,79 @@
                 padding: 6px 12px 4px 12px;
                 gap: 6px;
             }
+
             main {
                 padding: 10px 14px 8px 14px;
                 gap: 6px;
                 border-radius: 14px;
             }
+
             header h1 {
                 font-size: 18px;
             }
+
             header h2 {
                 font-size: 11px;
             }
+
             .duel-container {
                 padding: 16px 18px 14px 18px;
             }
+
             .duel-scores {
                 margin-bottom: 10px;
                 padding: 8px 12px;
             }
+
             .duel-joueur .duel-score {
                 font-size: 24px;
             }
+
             .duel-vs {
                 font-size: 18px;
             }
+
             .duel-question {
                 padding: 12px;
                 margin: 6px 0;
             }
+
             .duel-timer {
                 font-size: 28px;
             }
+
             .duel-text {
                 font-size: 15px;
             }
+
             .duel-reponses-container {
                 gap: 6px;
                 margin: 6px 0;
             }
+
             .duel-reponses-container button {
                 font-size: 12px;
                 padding: 8px 12px;
                 min-height: 36px;
             }
+
             .duel-resultat {
                 padding: 10px;
                 margin-top: 6px;
             }
+
             .duel-gagnant {
                 font-size: 36px;
             }
+
             .zoneDuel {
                 padding: 8px 12px;
             }
+
             .duel-liste {
                 max-height: 120px;
             }
+
             .classement-liste {
                 max-height: 140px;
             }
@@ -1648,7 +1708,7 @@
 
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
                 for (let registration of registrations) {
                     registration.unregister();
                 }
@@ -1702,7 +1762,8 @@
             <div class="profil-avatar" id="profilAvatar">👤</div>
             <div class="profil-info">
                 <div class="profil-nom" id="profilNom">Joueur</div>
-                <div class="profil-stats">Niveau <span id="profilNiveau">1</span> · ⭐ <span id="profilScore">0</span> pts</div>
+                <div class="profil-stats">Niveau <span id="profilNiveau">1</span> · ⭐ <span id="profilScore">0</span>
+                    pts</div>
             </div>
             <button class="profil-btn" id="btnProfil">✏️</button>
         </div>
@@ -1829,18 +1890,18 @@
                 <span class="duel-title">Joueurs en ligne</span>
                 <button class="duel-btn" id="btnDuel">🔄 Actualiser</button>
             </div>
-            
+
             <div class="duel-liste" id="duelListe">
                 <div class="duel-vide">🔍 Recherche de joueurs...</div>
             </div>
-            
+
             <!-- Fenêtre d'invitation -->
             <div class="duel-invitation" id="duelInvitation" style="display:none;">
                 <p>⏳ Invitation envoyée à <strong id="invitationNom">...</strong></p>
                 <div class="duel-attente">En attente de réponse...</div>
                 <button class="btn-annuler" id="btnAnnulerDuel">❌ Annuler</button>
             </div>
-            
+
             <!-- Statut du duel -->
             <div class="duel-statut" id="duelStatut" style="display:none;">
                 <span class="duel-statut-icone">⚔️</span>
@@ -1879,7 +1940,7 @@
             <div class="duel-header-overlay">
                 <button class="duel-close" id="btnFermerDuel">✕</button>
             </div>
-            
+
             <!-- Scores -->
             <div class="duel-scores">
                 <div class="duel-joueur" id="duelJoueur1">
@@ -1894,17 +1955,17 @@
                     <span class="duel-reponses" id="duelReponses2">✅ 0</span>
                 </div>
             </div>
-            
+
             <!-- Question -->
             <div class="duel-question" id="duelQuestion">
                 <div class="duel-timer" id="duelTimer">15</div>
                 <div class="duel-question-numero" id="duelQuestionNumero">Question 1/5</div>
                 <div class="duel-text" id="duelQuestionText">⏳ Chargement du duel...</div>
             </div>
-            
+
             <!-- Réponses -->
             <div class="duel-reponses-container" id="duelReponses"></div>
-            
+
             <!-- Résultat -->
             <div class="duel-resultat" id="duelResultat" style="display:none;">
                 <div class="duel-gagnant" id="duelGagnant">🏆</div>
@@ -1946,11 +2007,16 @@
             document.getElementById('installBanner').style.display = 'none';
         });
 
+
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js')
-                .then(() => console.log('✅ Service Worker enregistré !'))
-                .catch(err => console.log('❌ Erreur Service Worker:', err));
+            navigator.serviceWorker.getRegistrations().then(function (registrations) {
+                for (let registration of registrations) {
+                    registration.unregister();
+                }
+            });
         }
+
     </script>
 </body>
+
 </html>
