@@ -510,9 +510,10 @@
         }
 
         // ========================================
-        // DÉMARRER NIVEAU
+        // DÉMARRER NIVEAU (corrigé avec log)
         // ========================================
         async function demarrerNiveau() {
+            console.log(`🚀 demarrerNiveau appelé avec niveauActuel =`, niveauActuel);
             if (estEnChargement) return;
             estEnChargement = true;
 
@@ -793,7 +794,7 @@
         }
 
         // ========================================
-        // TERMINER NIVEAU (avec juice)
+        // TERMINER NIVEAU (corrigé avec mise à jour immédiate)
         // ========================================
         function terminerNiveau() {
             arreterTimer();
@@ -842,6 +843,9 @@
                 scoreTotal += 20;
                 afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
                 niveauActuel++;
+                // 🔥 Mise à jour immédiate de l'affichage
+                mettreAJourInterface();
+                console.log('✅ Niveau passé à', niveauActuel);
             }
 
             if (zoneReponses) zoneReponses.innerHTML = '';
