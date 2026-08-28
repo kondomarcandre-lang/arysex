@@ -28,6 +28,91 @@
            RESET & BASE
            ======================================== */
 
+
+
+        /* ========================================
+   ANIMATIONS JUICE (Shake + Confettis)
+   ======================================== */
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            20% {
+                transform: translateX(-15px);
+            }
+
+            40% {
+                transform: translateX(15px);
+            }
+
+            60% {
+                transform: translateX(-10px);
+            }
+
+            80% {
+                transform: translateX(10px);
+            }
+        }
+
+        .shake {
+            animation: shake 0.4s ease;
+        }
+
+        .confetti-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 99999;
+            overflow: hidden;
+        }
+
+        .confetti-piece {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            top: -10px;
+            animation: confettiFall linear forwards;
+        }
+
+        @keyframes confettiFall {
+            0% {
+                transform: translateY(0) rotate(0deg);
+                opacity: 1;
+            }
+
+            100% {
+                transform: translateY(110vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+
+        /* Pop sur le score */
+        @keyframes popScore {
+            0% {
+                transform: scale(1);
+            }
+
+            50% {
+                transform: scale(1.3);
+                color: #fdcb6e;
+            }
+
+            100% {
+                transform: scale(1);
+            }
+        }
+
+        .pop-score {
+            animation: popScore 0.4s ease;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -1766,6 +1851,102 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #6c5ce7;
         }
+
+        /* ===== OVERLAY D'INVITATION (remplace confirm) ===== */
+        .invite-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(12px);
+            z-index: 10001;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .invite-modal.active {
+            display: flex;
+        }
+
+        .invite-card {
+            background: linear-gradient(145deg, #1a1a2e, #16213e);
+            padding: 36px 32px 28px 32px;
+            border-radius: 28px;
+            max-width: 420px;
+            width: 90%;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+            animation: slideUp 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        .invite-card .invite-icon {
+            font-size: 56px;
+            margin-bottom: 10px;
+        }
+
+        .invite-card h2 {
+            color: #ffffff;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .invite-card p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 18px;
+            margin-bottom: 6px;
+        }
+
+        .invite-card .invite-sub {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 14px;
+            margin-bottom: 24px;
+        }
+
+        .invite-actions {
+            display: flex;
+            gap: 16px;
+        }
+
+        .invite-actions button {
+            flex: 1;
+            padding: 16px 20px;
+            border: none;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .invite-actions .btn-accept {
+            background: linear-gradient(135deg, #00b894, #00a381);
+            color: white;
+            box-shadow: 0 4px 25px rgba(0, 184, 148, 0.3);
+        }
+
+        .invite-actions .btn-accept:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 40px rgba(0, 184, 148, 0.5);
+        }
+
+        .invite-actions .btn-refuse {
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .invite-actions .btn-refuse:hover {
+            background: rgba(255, 107, 107, 0.2);
+            border-color: #ff6b6b;
+            color: #ff6b6b;
+        }
     </style>
 
     <script>
@@ -2051,6 +2232,21 @@
             </div>
         </div>
     </div>
+
+    <!-- ===== OVERLAY D'INVITATION (personnalisé) ===== -->
+    <div class="invite-modal" id="inviteModal">
+        <div class="invite-card">
+            <div class="invite-icon">⚔️</div>
+            <h2 id="inviteNom">Joueur</h2>
+            <p>vous défie en duel !</p>
+            <div class="invite-sub">5 questions · 15 secondes par question</div>
+            <div class="invite-actions">
+                <button class="btn-refuse" id="btnRefuserDuel">❌ Refuser</button>
+                <button class="btn-accept" id="btnAccepterDuel">✅ Accepter</button>
+            </div>
+        </div>
+    </div>
+
 
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js"></script>

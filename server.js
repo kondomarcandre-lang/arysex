@@ -94,6 +94,40 @@ io.on('connection', (socket) => {
         console.log(`✅ ${joueurs[socket.id].pseudo} est en ligne`);
     });
 
+
+        // ========================================
+    // 📊 METTRE À JOUR LE SCORE SOLO
+    // ========================================
+
+    socket.on('mettre_a_jour_score', (data) => {
+        const joueur = joueurs[socket.id];
+        if (!joueur) return;
+        
+        const { score } = data;
+        
+        // Initialiser les stats du joueur si elles n'existent pas
+        if (!classements[joueur.pseudo]) {
+            classements[joueur.pseudo] = {
+                victoires: 0,
+                defaites: 0,
+                egalites: 0,
+                parties: 0,
+                meilleurScore: 0,
+                soloScore: 0
+            };
+        }
+        
+        // Mettre à jour le soloScore si le nouveau score est plus élevé
+        if (score > classements[joueur.pseudo].soloScore) {
+            classements[joueur.pseudo].soloScore = score;
+            sauvegarderClassements(classements);
+            
+            // Diffuser la mise à jour à tous les joueurs
+            io.emit('classements', getClassements());
+            console.log(`📊 ${joueur.pseudo} a atteint ${score} pts en solo`);
+        }
+    });
+
     // ========================================
     // 📋 LISTE DES JOUEURS EN LIGNE
     // ========================================

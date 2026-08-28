@@ -1,11 +1,11 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION COMPLÈTE AVEC DUEL ET CLASSEMENTS
+// 🔥 MAIN.JS - VERSION COMPLÈTE AVEC DUEL, CLASSEMENTS ET JUICE (sons, vibreur, confettis)
 // ========================================
 
-(function() {
+(function () {
     'use strict';
 
-    console.log('📄 MAIN.JS - Initialisation...');
+    console.log('📄 MAIN.JS - Initialisation Juice...');
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
@@ -13,10 +13,278 @@
         init();
     }
 
+    // ========================================
+    // 🔊 GESTIONNAIRE DE SONS (Web Audio)
+    // ========================================
+    const SoundManager = (function () {
+        let ctx = null;
+        function getContext() {
+            if (!ctx) {
+                ctx = new (window.AudioContext || window.webkitAudioContext)();
+                if (ctx.state === 'suspended') ctx.resume();
+            }
+            return ctx;
+        }
+        function playTone(freq, duration, type = 'sine', volume = 0.3) {
+            try {
+                const context = getContext();
+                const osc = context.createOscillator();
+                const gain = context.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                gain.gain.setValueAtTime(volume, context.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(context.destination);
+                osc.start();
+                osc.stop(context.currentTime + duration);
+            } catch (e) { /* silence */ }
+        }
+        return {
+            click() { playTone(800, 0.08, 'sine', 0.15); },
+            correct() { playTone(523, 0.15); setTimeout(() => playTone(659, 0.15), 150); setTimeout(() => playTone(784, 0.25), 300); },
+            incorrect() { playTone(300, 0.4, 'sawtooth', 0.2); },
+            levelUp() { playTone(400, 0.2); setTimeout(() => playTone(500, 0.2), 200); setTimeout(() => playTone(600, 0.4), 400); },
+            timerWarning() { playTone(1000, 0.05, 'square', 0.1); },
+            duelStart() { playTone(200, 0.5, 'square', 0.3); setTimeout(() => playTone(300, 0.5, 'square', 0.3), 300); },
+            victory() { for (let i = 0; i < 8; i++) setTimeout(() => playTone(400 + i * 100, 0.15, 'sine', 0.2), i * 100); }
+        };
+    })();
+
+    // ========================================
+    // 📳 HAPTIC FEEDBACK (Vibration)
+    // ========================================
+    const Haptic = {
+        light() { if (navigator.vibrate) navigator.vibrate(10); },
+        medium() { if (navigator.vibrate) navigator.vibrate(30); },
+        heavy() { if (navigator.vibrate) navigator.vibrate(60); },
+        pattern() { if (navigator.vibrate) navigator.vibrate([30, 50, 30]); }
+    };
+
+    // ========================================
+    // 🎊 CONFETTIS
+    // ========================================
+    function lancerConfettis(couleurs = ['#4a6cf7', '#fdcb6e', '#ff6b6b', '#00b894', '#6c5ce7']) {
+        const container = document.createElement('div');
+        container.className = 'confetti-container';
+        document.body.appendChild(container);
+        for (let i = 0; i < 60; i++) {
+            const piece = document.createElement('div');
+            piece.className = 'confetti-piece';
+            piece.style.left = Math.random() * 100 + '%';
+            piece.style.background = couleurs[Math.floor(Math.random() * couleurs.length)];
+            piece.style.width = (Math.random() * 8 + 4) + 'px';
+            piece.style.height = (Math.random() * 8 + 4) + 'px';
+            piece.style.borderRadius = Math.random() > 0.5 ? '50%' : '2px';
+            piece.style.animationDuration = (Math.random() * 2 + 1.5) + 's';
+            piece.style.animationDelay = (Math.random() * 0.8) + 's';
+            container.appendChild(piece);
+        }
+        setTimeout(() => container.remove(), 4000);
+    }
+
+    // ========================================
+    // FONCTIONS DE RANG (inchangées)
+    // ========================================
+    function getRang(points) {
+        const rangs = [
+            { nom: 'Bronze', min: 0, max: 100, badge: '🥉' },
+            { nom: 'Argent', min: 101, max: 300, badge: '🥈' },
+            { nom: 'Or', min: 301, max: 600, badge: '🥇' },
+            { nom: 'Platine', min: 601, max: 1000, badge: '💎' },
+            { nom: 'Diamant', min: 1001, max: 1500, badge: '🔥' },
+            { nom: 'Légende', min: 1501, max: 2500, badge: '👑' },
+            { nom: 'Génie', min: 2501, max: Infinity, badge: '🧠' }
+        ];
+        for (const rang of rangs) {
+            if (points >= rang.min && points <= rang.max) return rang;
+        }
+        return rangs[rangs.length - 1];
+    }
+
+    function getRangProgress(points) {
+        const rangs = [
+            { nom: 'Bronze', min: 0, max: 100 },
+            { nom: 'Argent', min: 101, max: 300 },
+            { nom: 'Or', min: 301, max: 600 },
+            { nom: 'Platine', min: 601, max: 1000 },
+            { nom: 'Diamant', min: 1001, max: 1500 },
+            { nom: 'Légende', min: 1501, max: 2500 },
+            { nom: 'Génie', min: 2501, max: Infinity }
+        ];
+        for (const rang of rangs) {
+            if (points >= rang.min && points <= rang.max) {
+                if (rang.max === Infinity) return 100;
+                return Math.min(100, Math.max(0, ((points - rang.min) / (rang.max - rang.min)) * 100));
+            }
+        }
+        return 0;
+    }
+
+    // ========================================
+    // GESTION DU DÉFI
+    // ========================================
+    function getDateActuelle() {
+        return new Date().toDateString();
+    }
+
+    function sauvegarderDefi() {
+        try {
+            const data = JSON.stringify({
+                serieActuelle: serieActuelle,
+                meilleureSerie: meilleureSerie,
+                palierActuel: palierActuel,
+                paliersAtteints: paliersAtteints,
+                date: getDateActuelle()
+            });
+            localStorage.setItem('quiz_defi', data);
+        } catch (e) {
+            console.warn('⚠️ Erreur sauvegarde défi:', e);
+        }
+    }
+
+    function chargerDefi() {
+        try {
+            const data = localStorage.getItem('quiz_defi');
+            if (data) {
+                const parsed = JSON.parse(data);
+                if (parsed.date === getDateActuelle()) {
+                    serieActuelle = parsed.serieActuelle || 0;
+                    meilleureSerie = parsed.meilleureSerie || 0;
+                    palierActuel = parsed.palierActuel || 10;
+                    paliersAtteints = parsed.paliersAtteints || [];
+                    return true;
+                }
+            }
+        } catch (e) {
+            console.warn('⚠️ Erreur chargement défi:', e);
+        }
+        serieActuelle = 0;
+        meilleureSerie = 0;
+        palierActuel = 10;
+        paliersAtteints = [];
+        sauvegarderDefi();
+        return false;
+    }
+
+    function verifierDeblocageDefi() {
+        if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
+            paliersAtteints.push(palierActuel);
+            scoreTotal += BONUS_DEFI;
+            sauvegarderPartie();
+            sauvegarderDefi();
+            mettreAJourStats();
+            afficherNotification(`🎉 Défi réussi ! +${BONUS_DEFI} pts bonus !`, 'success');
+            palierActuel += PALIER_SUIVANT;
+            sauvegarderDefi();
+            mettreAJourStats();
+            console.log(`🎯 Défi atteint ! +${BONUS_DEFI} points, prochain palier: ${palierActuel}`);
+            return true;
+        }
+        return false;
+    }
+
+    // ========================================
+    // SAUVEGARDE HISTORIQUE
+    // ========================================
+    function sauvegarderHistorique() {
+        try {
+            localStorage.setItem('quiz_questions_jouees', JSON.stringify(Array.from(questionsDejaPosees)));
+        } catch (e) {
+            console.error('Erreur sauvegarde historique', e);
+        }
+    }
+
+    // ========================================
+    // GÉNÉRER NIVEAU
+    // ========================================
+    function genererNiveau(niveau) {
+        console.log(`🚀 Génération Niveau ${niveau} - Mode ${modeActuel}`);
+
+        const locales = modeActuel === 'afrique' ? window.QUESTIONS_AFRIQUE : window.QUESTIONS_MONDE;
+
+        if (!locales || locales.length === 0) {
+            console.error('❌ Aucune question disponible');
+            return [];
+        }
+
+        let disponibles = locales.filter(q => !questionsDejaPosees.has(q.question));
+
+        if (disponibles.length < 10) {
+            console.warn(`⚠️ Réserve épuisée (${disponibles.length} disponibles), réinitialisation`);
+            questionsDejaPosees.clear();
+            sauvegarderHistorique();
+            disponibles = [...locales];
+        }
+
+        const melangees = [...disponibles].sort(() => Math.random() - 0.5);
+        const selection = melangees.slice(0, 10);
+
+        const selectionMelangee = selection.map(q => {
+            const bonneReponse = q.options[q.correct];
+            const optionsMelangees = [...q.options].sort(() => Math.random() - 0.5);
+            const nouvelIndexCorrect = optionsMelangees.indexOf(bonneReponse);
+
+            return {
+                question: q.question,
+                options: optionsMelangees,
+                correct: nouvelIndexCorrect,
+                categorie: q.categorie,
+                difficulte: q.difficulte
+            };
+        });
+
+        selectionMelangee.forEach(q => questionsDejaPosees.add(q.question));
+        sauvegarderHistorique();
+
+        console.log(`✅ ${selectionMelangee.length} questions sélectionnées pour ${modeActuel}`);
+        return selectionMelangee;
+    }
+
+    // ========================================
+    // VARIABLES GLOBALES
+    // ========================================
+    let questionsActuelles = [];
+    let indexQuestion = 0;
+    let scoreNiveau = 0;
+    let estEnJeu = false;
+    let reponseDonnee = false;
+    let indiceUtilise = false;
+    let estEnChargement = false;
+    let modeActuel = 'monde';
+    let scoreTotal = 0;
+    let niveauActuel = 1;
+    let questionsDejaPosees = new Set();
+    let reponsesParNiveau = {};
+    let timerInterval = null;
+    let tempsRestant = 15;
+    let timerActif = false;
+
+    // Duel
+    let socket = null;
+    let estEnDuel = false;
+    let salleId = null;
+    let duelEnCours = false;
+    let duelTimerInterval = null;
+    let duelTempsRestant = 15;
+    let adversaireId = null;
+    let tabClassementActif = 'duel';
+
+    // Défi
+    let serieActuelle = 0;
+    let meilleureSerie = 0;
+    let palierActuel = 10;
+    let paliersAtteints = [];
+    const BONUS_DEFI = 50;
+    const PALIER_SUIVANT = 5;
+
+    // ========================================
+    // INITIALISATION
+    // ========================================
     function init() {
         console.log('📄 DOM chargé, initialisation...');
 
-        // ===== RÉCUPÉRATION DES ÉLÉMENTS =====
+        // Récupération des éléments DOM
         const welcomeOverlay = document.getElementById('welcomeOverlay');
         const welcomeBtn = document.getElementById('welcomeBtn');
         const welcomePseudo = document.getElementById('welcomePseudo');
@@ -49,7 +317,6 @@
         const zoneTimer = document.getElementById('zoneTimer');
         const timerValue = document.getElementById('timerValue');
 
-        // ===== ÉLÉMENTS DU DUEL =====
         const duelListe = document.getElementById('duelListe');
         const btnDuel = document.getElementById('btnDuel');
         const duelInvitation = document.getElementById('duelInvitation');
@@ -75,211 +342,12 @@
         const duelStats1 = document.getElementById('duelStats1');
         const duelStats2 = document.getElementById('duelStats2');
 
-        // ===== ÉLÉMENTS CLASSEMENTS =====
         const classementListe = document.getElementById('classementListe');
         const classementTabs = document.querySelectorAll('.classement-tab');
 
-        // ===== VARIABLES =====
-        let questionsActuelles = [];
-        let indexQuestion = 0;
-        let scoreNiveau = 0;
-        let estEnJeu = false;
-        let reponseDonnee = false;
-        let indiceUtilise = false;
-        let estEnChargement = false;
-        let modeActuel = 'monde';
-        let scoreTotal = 0;
-        let niveauActuel = 1;
-        let questionsDejaPosees = new Set();
-        let reponsesParNiveau = {};
-        let timerInterval = null;
-        let tempsRestant = 15;
-        let timerActif = false;
-
-        // ===== VARIABLES DU DUEL =====
-        let socket = null;
-        let estEnDuel = false;
-        let salleId = null;
-        let duelEnCours = false;
-        let duelTimerInterval = null;
-        let duelTempsRestant = 15;
-        let adversaireId = null;
-        let tabClassementActif = 'duel';
-
-        // ===== VARIABLES DÉFI =====
-        let serieActuelle = 0;
-        let meilleureSerie = 0;
-        let palierActuel = 10;
-        let paliersAtteints = [];
-        const BONUS_DEFI = 50;
-        const PALIER_SUIVANT = 5;
-
         // ========================================
-        // 🔥 FONCTIONS DE RANG
+        // CHANGER DE MODE
         // ========================================
-
-        function getRang(points) {
-            const rangs = [
-                { nom: 'Bronze', min: 0, max: 100, badge: '🥉' },
-                { nom: 'Argent', min: 101, max: 300, badge: '🥈' },
-                { nom: 'Or', min: 301, max: 600, badge: '🥇' },
-                { nom: 'Platine', min: 601, max: 1000, badge: '💎' },
-                { nom: 'Diamant', min: 1001, max: 1500, badge: '🔥' },
-                { nom: 'Légende', min: 1501, max: 2500, badge: '👑' },
-                { nom: 'Génie', min: 2501, max: Infinity, badge: '🧠' }
-            ];
-            for (const rang of rangs) {
-                if (points >= rang.min && points <= rang.max) return rang;
-            }
-            return rangs[rangs.length - 1];
-        }
-
-        function getRangProgress(points) {
-            const rangs = [
-                { nom: 'Bronze', min: 0, max: 100 },
-                { nom: 'Argent', min: 101, max: 300 },
-                { nom: 'Or', min: 301, max: 600 },
-                { nom: 'Platine', min: 601, max: 1000 },
-                { nom: 'Diamant', min: 1001, max: 1500 },
-                { nom: 'Légende', min: 1501, max: 2500 },
-                { nom: 'Génie', min: 2501, max: Infinity }
-            ];
-            for (const rang of rangs) {
-                if (points >= rang.min && points <= rang.max) {
-                    if (rang.max === Infinity) return 100;
-                    return Math.min(100, Math.max(0, ((points - rang.min) / (rang.max - rang.min)) * 100));
-                }
-            }
-            return 0;
-        }
-
-        // ========================================
-        // 🔥 GESTION DU DÉFI
-        // ========================================
-
-        function getDateActuelle() {
-            return new Date().toDateString();
-        }
-
-        function sauvegarderDefi() {
-            try {
-                const data = JSON.stringify({
-                    serieActuelle: serieActuelle,
-                    meilleureSerie: meilleureSerie,
-                    palierActuel: palierActuel,
-                    paliersAtteints: paliersAtteints,
-                    date: getDateActuelle()
-                });
-                localStorage.setItem('quiz_defi', data);
-            } catch (e) {
-                console.warn('⚠️ Erreur sauvegarde défi:', e);
-            }
-        }
-
-        function chargerDefi() {
-            try {
-                const data = localStorage.getItem('quiz_defi');
-                if (data) {
-                    const parsed = JSON.parse(data);
-                    if (parsed.date === getDateActuelle()) {
-                        serieActuelle = parsed.serieActuelle || 0;
-                        meilleureSerie = parsed.meilleureSerie || 0;
-                        palierActuel = parsed.palierActuel || 10;
-                        paliersAtteints = parsed.paliersAtteints || [];
-                        return true;
-                    }
-                }
-            } catch (e) {
-                console.warn('⚠️ Erreur chargement défi:', e);
-            }
-            serieActuelle = 0;
-            meilleureSerie = 0;
-            palierActuel = 10;
-            paliersAtteints = [];
-            sauvegarderDefi();
-            return false;
-        }
-
-        function verifierDeblocageDefi() {
-            if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
-                paliersAtteints.push(palierActuel);
-                scoreTotal += BONUS_DEFI;
-                sauvegarderPartie();
-                sauvegarderDefi();
-                mettreAJourStats();
-                afficherNotification(`🎉 Défi réussi ! +${BONUS_DEFI} pts bonus !`, 'success');
-                palierActuel += PALIER_SUIVANT;
-                sauvegarderDefi();
-                mettreAJourStats();
-                console.log(`🎯 Défi atteint ! +${BONUS_DEFI} points, prochain palier: ${palierActuel}`);
-                return true;
-            }
-            return false;
-        }
-
-        // ========================================
-        // 🔥 SAUVEGARDE HISTORIQUE
-        // ========================================
-
-        function sauvegarderHistorique() {
-            try {
-                localStorage.setItem('quiz_questions_jouees', JSON.stringify(Array.from(questionsDejaPosees)));
-            } catch (e) {
-                console.error('Erreur sauvegarde historique', e);
-            }
-        }
-
-        // ========================================
-        // 🔥 GÉNÉRER NIVEAU
-        // ========================================
-
-        function genererNiveau(niveau) {
-            console.log(`🚀 Génération Niveau ${niveau} - Mode ${modeActuel}`);
-
-            const locales = modeActuel === 'afrique' ? window.QUESTIONS_AFRIQUE : window.QUESTIONS_MONDE;
-
-            if (!locales || locales.length === 0) {
-                console.error('❌ Aucune question disponible');
-                return [];
-            }
-
-            let disponibles = locales.filter(q => !questionsDejaPosees.has(q.question));
-            
-            if (disponibles.length < 10) {
-                console.warn(`⚠️ Réserve épuisée (${disponibles.length} disponibles), réinitialisation`);
-                questionsDejaPosees.clear();
-                sauvegarderHistorique();
-                disponibles = [...locales];
-            }
-
-            const melangees = [...disponibles].sort(() => Math.random() - 0.5);
-            const selection = melangees.slice(0, 10);
-            
-            const selectionMelangee = selection.map(q => {
-                const bonneReponse = q.options[q.correct];
-                const optionsMelangees = [...q.options].sort(() => Math.random() - 0.5);
-                const nouvelIndexCorrect = optionsMelangees.indexOf(bonneReponse);
-                
-                return {
-                    question: q.question,
-                    options: optionsMelangees,
-                    correct: nouvelIndexCorrect,
-                    categorie: q.categorie,
-                    difficulte: q.difficulte
-                };
-            });
-            
-            selectionMelangee.forEach(q => questionsDejaPosees.add(q.question));
-            sauvegarderHistorique();
-
-            console.log(`✅ ${selectionMelangee.length} questions sélectionnées pour ${modeActuel}`);
-            return selectionMelangee;
-        }
-
-        // ========================================
-        // 🔥 CHANGER DE MODE
-        // ========================================
-
         function changerMode(mode) {
             if (estEnChargement) return;
             if (mode === modeActuel) {
@@ -288,37 +356,45 @@
             }
 
             console.log(`🔄 Changement de mode: ${modeActuel} → ${mode}`);
-            
+
+            // Sauvegarde du mode actuel
             sauvegarderDonneesMode(modeActuel);
             modeActuel = mode;
-            
+
+            // Mise à jour visuelle des boutons
             if (btnModeMonde && btnModeAfrique) {
                 btnModeMonde.classList.toggle('active', mode === 'monde');
                 btnModeAfrique.classList.toggle('active', mode === 'afrique');
             }
-            
+
+            // Charge les données du nouveau mode (sans les écraser)
             chargerDonneesMode(mode);
-            niveauActuel = 1;
-            scoreTotal = 0;
-            questionsDejaPosees.clear();
-            reponsesParNiveau = {};
+
+            // 🔥 SUPPRIME CES 3 LIGNES (ne réinitialise plus le niveau/score)
+            // niveauActuel = 1;
+            // scoreTotal = 0;
+            // questionsDejaPosees.clear();
+
+            // Réinitialise seulement le défi (pour éviter de tricher)
             serieActuelle = 0;
             palierActuel = 10;
             paliersAtteints = [];
-            
+
+            // Met à jour l'interface
             mettreAJourInterface();
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
+
+            // Relance le niveau actuel (avec les questions du nouveau mode)
             demarrerNiveau();
-            
-            console.log(`✅ Mode ${mode} activé avec ${mode === 'afrique' ? window.QUESTIONS_AFRIQUE?.length || 0 : window.QUESTIONS_MONDE?.length || 0} questions`);
+
+            console.log(`✅ Mode ${mode} activé avec niveau ${niveauActuel} et score ${scoreTotal}`);
         }
 
         // ========================================
-        // 🔥 SAUVEGARDE PAR MODE
+        // SAUVEGARDE PAR MODE
         // ========================================
-
         function sauvegarderDonneesMode(mode) {
             try {
                 const data = {
@@ -348,29 +424,25 @@
         }
 
         // ========================================
-        // 🔥 BOUTONS DE MODE
+        // BOUTONS MODE
         // ========================================
-
         if (btnModeMonde) {
-            btnModeMonde.addEventListener('click', function(e) {
+            btnModeMonde.addEventListener('click', function (e) {
                 e.preventDefault();
                 changerMode('monde');
             });
-            console.log('✅ Bouton "Monde" configuré');
         }
 
         if (btnModeAfrique) {
-            btnModeAfrique.addEventListener('click', function(e) {
+            btnModeAfrique.addEventListener('click', function (e) {
                 e.preventDefault();
                 changerMode('afrique');
             });
-            console.log('✅ Bouton "Afrique" configuré');
         }
 
         // ========================================
-        // 🔥 LANCER LE JEU
+        // LANCER LE JEU
         // ========================================
-
         function lancerLeJeu() {
             console.log('🚀 LANCEMENT DU JEU !');
 
@@ -382,7 +454,7 @@
 
             try {
                 localStorage.setItem('quiz_pseudo', pseudo);
-            } catch (e) {}
+            } catch (e) { }
 
             welcomeOverlay.style.display = 'none';
             welcomeOverlay.style.visibility = 'hidden';
@@ -403,58 +475,43 @@
             if (btnModeMonde) btnModeMonde.classList.add('active');
             if (btnModeAfrique) btnModeAfrique.classList.remove('active');
 
-            // Connexion au serveur de duel
             connecterServeur();
 
-            // NE PAS lancer le jeu ici, l'écran de transition s'en occupe !
-            
             console.log('✅ Jeu démarré avec:', pseudo);
         }
 
         // ========================================
-        // 🔥 BOUTON COMMENCER (Écran d'accueil)
+        // BOUTON COMMENCER (accueil)
         // ========================================
-
         if (welcomeBtn) {
-            welcomeBtn.onclick = function(e) {
+            welcomeBtn.onclick = function (e) {
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('🖱️ CLIC SUR LE BOUTON !');
-                
-                // On cache l'écran d'accueil et on affiche le jeu
                 lancerLeJeu();
-                
-                // On affiche l'écran de transition
                 document.getElementById('transitionOverlay').style.display = 'flex';
-                
                 return false;
             };
         }
 
         // ========================================
-        // 🔥 GESTION DE L'ÉCRAN DE TRANSITION
+        // ÉCRAN DE TRANSITION
         // ========================================
-
         const transitionOverlay = document.getElementById('transitionOverlay');
         const transitionBtn = document.getElementById('transitionBtn');
 
         if (transitionBtn) {
-            transitionBtn.onclick = function(e) {
+            transitionBtn.onclick = function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                
-                // On cache l'écran de transition
                 transitionOverlay.style.display = 'none';
-                
-                // Et on lance vraiment les questions !
                 demarrerNiveau();
             };
         }
 
         // ========================================
-        // 🔥 DÉMARRER NIVEAU
+        // DÉMARRER NIVEAU
         // ========================================
-
         async function demarrerNiveau() {
             if (estEnChargement) return;
             estEnChargement = true;
@@ -471,9 +528,8 @@
             if (questionText) questionText.textContent = "🔄 Chargement des questions...";
             if (questionProgress) questionProgress.textContent = "⏳";
             if (zoneReponses) zoneReponses.innerHTML = "";
-            
             if (zoneTimer) zoneTimer.style.display = 'none';
-            
+
             arreterTimer();
             reponsesParNiveau[niveauActuel] = { correct: 0, incorrect: 0 };
 
@@ -528,9 +584,8 @@
         }
 
         // ========================================
-        // 🔥 AFFICHER QUESTION (AVEC TIMER)
+        // AFFICHER QUESTION
         // ========================================
-
         function afficherQuestion() {
             if (indexQuestion >= questionsActuelles.length) {
                 terminerNiveau();
@@ -573,13 +628,14 @@
         }
 
         // ========================================
-        // 🔥 VÉRIFIER RÉPONSE
+        // VÉRIFIER RÉPONSE (avec juice)
         // ========================================
-
         function verifierReponse(indexChoisi) {
             if (reponseDonnee) return;
             reponseDonnee = true;
             arreterTimer();
+
+            SoundManager.click();
 
             if (zoneTimer) {
                 zoneTimer.style.display = 'none';
@@ -598,12 +654,39 @@
             });
 
             if (indexChoisi === question.correct) {
+                // ✅ Bonne réponse
+                SoundManager.correct();
+                Haptic.medium();
+                lancerConfettis();
+
                 scoreNiveau += 10;
                 scoreTotal += 10;
                 if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
                 serieActuelle++;
                 verifierDeblocageDefi();
+
+                // Animation pop sur le score total
+                const scoreSpan = document.getElementById('scoreTotal');
+                if (scoreSpan) {
+                    scoreSpan.classList.remove('pop-score');
+                    void scoreSpan.offsetWidth;
+                    scoreSpan.classList.add('pop-score');
+                }
+
             } else if (indexChoisi >= 0) {
+                // ❌ Mauvaise réponse
+                SoundManager.incorrect();
+                Haptic.heavy();
+
+                // Shake sur la question
+                const questionZone = document.getElementById('questionText');
+                if (questionZone) {
+                    questionZone.classList.remove('shake');
+                    void questionZone.offsetWidth;
+                    questionZone.classList.add('shake');
+                    setTimeout(() => questionZone.classList.remove('shake'), 500);
+                }
+
                 if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].incorrect++;
                 serieActuelle = 0;
             }
@@ -619,14 +702,13 @@
         }
 
         // ========================================
-        // 🔥 TIMER
+        // TIMER (avec warning sonore)
         // ========================================
-
         function demarrerTimer() {
             arreterTimer();
             tempsRestant = 15;
             timerActif = true;
-            
+
             if (timerValue) {
                 timerValue.textContent = '15';
                 timerValue.classList.remove('warning');
@@ -634,13 +716,15 @@
             if (zoneTimer) {
                 zoneTimer.style.display = 'flex';
             }
-            
+
             timerInterval = setInterval(() => {
                 tempsRestant--;
                 if (timerValue) {
                     timerValue.textContent = tempsRestant;
                     if (tempsRestant <= 5) {
                         timerValue.classList.add('warning');
+                        SoundManager.timerWarning();
+                        Haptic.light();
                     }
                 }
                 if (tempsRestant <= 0) {
@@ -659,17 +743,16 @@
         }
 
         // ========================================
-        // 🔥 STATS ET INTERFACE
+        // STATS & INTERFACE
         // ========================================
-
         function mettreAJourStats() {
             if (profilScore) profilScore.textContent = scoreTotal;
             if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
-            
+
             const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
             if (statsCorrect) statsCorrect.textContent = `✅ ${stats.correct}`;
             if (statsIncorrect) statsIncorrect.textContent = `❌ ${stats.incorrect}`;
-            
+
             if (progressFill) {
                 const total = stats.correct + stats.incorrect + (indexQuestion || 0);
                 const progress = Math.min(100, (total / 10) * 100);
@@ -679,9 +762,12 @@
             if (dailyPlayers) {
                 dailyPlayers.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
             }
-
             if (btnDaily) {
                 btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
+            }
+
+            if (socket && socket.connected) {
+                socket.emit('mettre_a_jour_score', { score: scoreTotal });
             }
 
             mettreAJourRang();
@@ -707,31 +793,32 @@
         }
 
         // ========================================
-        // 🔥 TERMINER NIVEAU
+        // TERMINER NIVEAU (avec juice)
         // ========================================
-
         function terminerNiveau() {
             arreterTimer();
             estEnJeu = false;
-            
+
             if (zoneTimer) {
                 zoneTimer.style.display = 'none';
             }
-            
+
             const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
             const total = stats.correct + stats.incorrect;
-            const pourcentage = total > 0 ? Math.round((stats.correct / total) * 100) : 0;
-            
+
             if (stats.correct < 10) {
+                // Échec
+                SoundManager.incorrect();
+                Haptic.pattern();
                 if (questionText) {
-                    questionText.textContent = `❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10) - Vous devez avoir 10/10 pour passer au niveau supérieur.`;
+                    questionText.textContent = `❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10) - Vous devez avoir 10/10 pour passer.`;
                 }
                 if (zoneReponses) zoneReponses.innerHTML = '';
                 if (btnAction) {
                     btnAction.textContent = "🔄 Refaire le niveau";
                     btnAction.style.display = "block";
                     btnAction.className = "btn-action danger";
-                    btnAction.onclick = function() {
+                    btnAction.onclick = function () {
                         questionsDejaPosees.clear();
                         sauvegarderHistorique();
                         demarrerNiveau();
@@ -743,8 +830,12 @@
                 mettreAJourStats();
                 return;
             }
-            
+
+            // ✅ Réussite
             if (stats.correct === 10) {
+                SoundManager.levelUp();
+                Haptic.pattern();
+                lancerConfettis(['#fdcb6e', '#ff6b6b', '#4a6cf7', '#00b894', '#6c5ce7']);
                 if (questionText) {
                     questionText.textContent = `🏆 PARFAIT ! 10/10 ! Score : ${scoreNiveau} pts - Passage au niveau ${niveauActuel + 1}`;
                 }
@@ -752,13 +843,13 @@
                 afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
                 niveauActuel++;
             }
-            
+
             if (zoneReponses) zoneReponses.innerHTML = '';
             if (btnAction) {
                 btnAction.textContent = "🚀 Niveau Suivant";
                 btnAction.style.display = "block";
                 btnAction.className = "btn-action success";
-                btnAction.onclick = function() {
+                btnAction.onclick = function () {
                     demarrerNiveau();
                 };
             }
@@ -768,16 +859,15 @@
         }
 
         // ========================================
-        // 🔥 SAUVEGARDE
+        // SAUVEGARDE
         // ========================================
-
         function sauvegarderPartie() {
             try {
                 localStorage.setItem('quiz_niveau', niveauActuel);
                 localStorage.setItem('quiz_score', scoreTotal);
                 localStorage.setItem('quiz_mode', modeActuel);
                 sauvegarderDonneesMode(modeActuel);
-            } catch (e) {}
+            } catch (e) { }
         }
 
         function chargerPartie() {
@@ -796,13 +886,12 @@
                 }
                 chargerDonneesMode(modeActuel);
                 mettreAJourInterface();
-            } catch (e) {}
+            } catch (e) { }
         }
 
         // ========================================
-        // 🔥 NOTIFICATION
+        // NOTIFICATION
         // ========================================
-
         function afficherNotification(message, type = 'success') {
             const div = document.createElement('div');
             div.style.cssText = `
@@ -831,18 +920,17 @@
         }
 
         // ========================================
-        // 🔥 BOUTON INDICE
+        // BOUTON INDICE
         // ========================================
-
         if (btnIndice) {
-            btnIndice.addEventListener('click', function() {
+            btnIndice.addEventListener('click', function () {
                 if (indiceUtilise || reponseDonnee || !estEnJeu) return;
                 indiceUtilise = true;
                 btnIndice.style.display = 'none';
 
                 const question = questionsActuelles[indexQuestion];
                 const boutons = zoneReponses.querySelectorAll('.btn-reponse');
-                
+
                 let mauvaisesReponses = [];
                 boutons.forEach((btn, idx) => {
                     if (idx !== question.correct && !btn.disabled) {
@@ -862,11 +950,10 @@
         }
 
         // ========================================
-        // 🔥 BOUTON DAILY
+        // BOUTON DAILY
         // ========================================
-
         if (btnDaily) {
-            btnDaily.addEventListener('click', function() {
+            btnDaily.addEventListener('click', function () {
                 serieActuelle = 0;
                 palierActuel = 10;
                 paliersAtteints = [];
@@ -878,9 +965,8 @@
         }
 
         // ========================================
-        // 🔥 BOUTON PROFIL (Changer pseudo)
+        // BOUTON PROFIL
         // ========================================
-
         const btnProfil = document.getElementById('btnProfil');
         const modalPseudo = document.getElementById('modalPseudo');
         const inputPseudo = document.getElementById('inputPseudo');
@@ -888,7 +974,7 @@
         const btnPseudoCancel = document.getElementById('btnPseudoCancel');
 
         if (btnProfil) {
-            btnProfil.addEventListener('click', function() {
+            btnProfil.addEventListener('click', function () {
                 if (modalPseudo) {
                     modalPseudo.style.display = 'flex';
                     if (inputPseudo) {
@@ -900,16 +986,15 @@
         }
 
         if (btnPseudoOk) {
-            btnPseudoOk.addEventListener('click', function() {
+            btnPseudoOk.addEventListener('click', function () {
                 const nouveauPseudo = inputPseudo.value.trim();
                 if (nouveauPseudo && nouveauPseudo.length >= 2) {
                     profilNom.textContent = nouveauPseudo;
                     try {
                         localStorage.setItem('quiz_pseudo', nouveauPseudo);
-                    } catch (e) {}
+                    } catch (e) { }
                     if (modalPseudo) modalPseudo.style.display = 'none';
                     afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
-                    // Mettre à jour sur le serveur
                     if (socket) {
                         socket.emit('reconnecter', { pseudo: nouveauPseudo });
                     }
@@ -920,13 +1005,13 @@
         }
 
         if (btnPseudoCancel) {
-            btnPseudoCancel.addEventListener('click', function() {
+            btnPseudoCancel.addEventListener('click', function () {
                 if (modalPseudo) modalPseudo.style.display = 'none';
             });
         }
 
         if (modalPseudo) {
-            modalPseudo.addEventListener('click', function(e) {
+            modalPseudo.addEventListener('click', function (e) {
                 if (e.target === modalPseudo) {
                     modalPseudo.style.display = 'none';
                 }
@@ -934,7 +1019,7 @@
         }
 
         if (inputPseudo) {
-            inputPseudo.addEventListener('keydown', function(e) {
+            inputPseudo.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter') {
                     btnPseudoOk.click();
                 }
@@ -942,59 +1027,57 @@
         }
 
         // ========================================
-        // 🔥 SYSTÈME DE DUEL
+        // SYSTÈME DE DUEL
         // ========================================
-
         function connecterServeur() {
             const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
                 ? 'http://localhost:3000'
                 : 'https://arysex-quiz-duel.onrender.com';
 
             socket = io(serverUrl);
-            
+
             socket.on('connect', () => {
                 console.log('🔗 Connecté au serveur de duel');
-                
                 socket.emit('enregistrer', {
                     pseudo: profilNom.textContent,
                     niveau: niveauActuel,
                     score: scoreTotal
                 });
             });
-            
+
             socket.on('joueurs_en_ligne', (joueurs) => {
                 afficherJoueursEnLigne(joueurs);
             });
-            
+
             socket.on('classements', (classements) => {
                 afficherClassements(classements);
             });
-            
+
             socket.on('duel_debute', (data) => {
                 ouvrirFenetreDuel(data);
             });
-            
+
             socket.on('demarrer_duel', (data) => {
                 demarrerDuel(data);
             });
-            
+
             socket.on('resultat_duel', (data) => {
                 afficherResultatDuel(data);
             });
-            
+
             socket.on('question_suivante', (data) => {
                 afficherQuestionDuel(data);
             });
-            
+
             socket.on('fin_duel', (data) => {
                 terminerDuel(data);
             });
-            
+
             socket.on('invitation_refusee', (data) => {
                 afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
                 duelInvitation.style.display = 'none';
             });
-            
+
             socket.on('erreur', (data) => {
                 afficherNotification(`❌ ${data.message}`, 'error');
             });
@@ -1002,12 +1085,12 @@
 
         function afficherJoueursEnLigne(joueurs) {
             if (!duelListe) return;
-            
+
             if (!joueurs || joueurs.length === 0) {
                 duelListe.innerHTML = '<div class="duel-vide">👤 Aucun joueur en ligne</div>';
                 return;
             }
-            
+
             duelListe.innerHTML = joueurs.map(j => `
                 <div class="duel-item">
                     <div>
@@ -1028,20 +1111,17 @@
                 afficherNotification('❌ Vous êtes déjà en duel !', 'error');
                 return;
             }
-            
+
             adversaireId = adversaireId;
-            
-            // Générer 5 questions pour le duel
             const questions = genererQuestionsDuel(5);
-            
+
             socket.emit('inviter_duel', {
                 adversaireId: adversaireId,
                 questions: questions
             });
-            
+
             duelInvitation.style.display = 'block';
-            
-            // Trouver le nom de l'adversaire
+
             const items = document.querySelectorAll('.duel-item');
             items.forEach(item => {
                 const btn = item.querySelector('.btn-defier');
@@ -1058,12 +1138,12 @@
             const locales = modeActuel === 'afrique' ? window.QUESTIONS_AFRIQUE : window.QUESTIONS_MONDE;
             const melangees = [...locales].sort(() => Math.random() - 0.5);
             const selection = melangees.slice(0, nombre);
-            
+
             return selection.map(q => {
                 const bonneReponse = q.options[q.correct];
                 const optionsMelangees = [...q.options].sort(() => Math.random() - 0.5);
                 const nouvelIndexCorrect = optionsMelangees.indexOf(bonneReponse);
-                
+
                 return {
                     question: q.question,
                     options: optionsMelangees,
@@ -1075,9 +1155,10 @@
         }
 
         function ouvrirFenetreDuel(data) {
+            SoundManager.duelStart();
             estEnDuel = true;
             salleId = data.salleId;
-            
+
             duelOverlay.style.display = 'flex';
             duelNom1.textContent = profilNom.textContent;
             duelNom2.textContent = data.adversaire;
@@ -1088,18 +1169,19 @@
             duelQuestionText.textContent = '⏳ En attente du duel...';
             duelReponsesContainer.innerHTML = '';
             duelResultat.style.display = 'none';
-            
+
             duelInvitation.style.display = 'none';
             duelStatut.style.display = 'block';
             duelStatutTexte.innerHTML = `En duel avec <strong>${data.adversaire}</strong>`;
         }
 
         function demarrerDuel(data) {
+            SoundManager.duelStart();
             duelEnCours = true;
             duelQuestionText.textContent = 'Prêt ? C\'est parti !';
             duelNom1.textContent = profilNom.textContent;
             duelNom2.textContent = data.adversaire;
-            
+
             setTimeout(() => {
                 afficherQuestionDuel({ index: 0, question: data.questions[0] });
             }, 1000);
@@ -1108,26 +1190,26 @@
         function afficherQuestionDuel(data) {
             const question = data.question;
             const totalQuestions = 5;
-            
+
             duelQuestionNumero.textContent = `Question ${data.index + 1}/${totalQuestions}`;
             duelQuestionText.textContent = question.question;
             duelReponsesContainer.innerHTML = '';
-            
-            // Démarrer le timer
+
             duelTempsRestant = 15;
             duelTimer.textContent = duelTempsRestant;
             duelTimer.classList.remove('warning');
-            
+
             if (duelTimerInterval) clearInterval(duelTimerInterval);
             duelTimerInterval = setInterval(() => {
                 duelTempsRestant--;
                 duelTimer.textContent = duelTempsRestant;
                 if (duelTempsRestant <= 5) {
                     duelTimer.classList.add('warning');
+                    SoundManager.timerWarning();
+                    Haptic.light();
                 }
                 if (duelTempsRestant <= 0) {
                     clearInterval(duelTimerInterval);
-                    // Temps écoulé
                     socket.emit('reponse_duel', {
                         salleId: salleId,
                         indexQuestion: data.index,
@@ -1136,18 +1218,15 @@
                     });
                 }
             }, 1000);
-            
-            // Afficher les réponses
+
             const lettres = ['A', 'B', 'C', 'D'];
             question.options.forEach((opt, idx) => {
                 const btn = document.createElement('button');
                 btn.textContent = `${lettres[idx]}. ${opt}`;
                 btn.onclick = () => {
                     if (btn.disabled) return;
-                    
                     document.querySelectorAll('.duel-reponses-container button').forEach(b => b.disabled = true);
                     clearInterval(duelTimerInterval);
-                    
                     socket.emit('reponse_duel', {
                         salleId: salleId,
                         indexQuestion: data.index,
@@ -1160,18 +1239,13 @@
         }
 
         function afficherResultatDuel(data) {
-            const boutons = document.querySelectorAll('.duel-reponses-container button');
-            
-            // Mettre à jour les scores
             if (data.correct !== undefined) {
                 if (data.correct) {
-                    // Marquer la bonne réponse (à améliorer avec la question actuelle)
                     afficherNotification('✅ Bonne réponse !', 'success');
                 } else {
                     afficherNotification('❌ Mauvaise réponse !', 'error');
                 }
             }
-            
             duelScore1.textContent = data.score || 0;
             if (data.adversaireScore !== undefined) {
                 duelScore2.textContent = data.adversaireScore;
@@ -1182,33 +1256,33 @@
             clearInterval(duelTimerInterval);
             duelEnCours = false;
             estEnDuel = false;
-            
+
             duelResultat.style.display = 'block';
             duelReponsesContainer.innerHTML = '';
             duelQuestionText.textContent = '🏁 Duel terminé !';
             duelTimer.style.display = 'none';
             duelQuestionNumero.textContent = '🎯 Résultats';
-            
+
             const gagnantDiv = duelGagnant;
             if (data.gagnant === 'Égalité') {
                 gagnantDiv.textContent = '🤝 Égalité !';
             } else if (data.gagnant === profilNom.textContent) {
                 gagnantDiv.textContent = '🏆 Vous avez gagné ! 🎉';
-                // Bonus de victoire
+                SoundManager.victory();
+                lancerConfettis(['#fdcb6e', '#ffd93d', '#ff6b6b', '#4a6cf7']);
                 scoreTotal += 30;
                 sauvegarderPartie();
                 mettreAJourStats();
-                // Notification
                 setTimeout(() => {
                     afficherNotification('🎉 Vous avez gagné le duel ! +30 pts', 'success');
                 }, 500);
             } else {
                 gagnantDiv.textContent = `👏 ${data.gagnant} a gagné !`;
             }
-            
+
             duelStats1.textContent = `${data.joueur1.pseudo}: ${data.joueur1.score} pts (${data.joueur1.reponses} bonnes réponses)`;
             duelStats2.textContent = `${data.joueur2.pseudo}: ${data.joueur2.score} pts (${data.joueur2.reponses} bonnes réponses)`;
-            
+
             duelStatut.style.display = 'none';
         }
 
@@ -1219,37 +1293,33 @@
             duelOverlay.style.display = 'none';
             duelStatut.style.display = 'none';
             duelResultat.style.display = 'none';
-            
+
             if (socket) {
                 socket.emit('demander_joueurs');
             }
         }
 
         // ========================================
-        // 🔥 CLASSEMENTS
+        // CLASSEMENTS
         // ========================================
-
         function afficherClassements(classements) {
             if (!classementListe) return;
-            
+
             if (!classements || classements.length === 0) {
                 classementListe.innerHTML = '<div class="classement-vide">📊 Aucun classement disponible</div>';
                 return;
             }
 
-            // Filtrer selon l'onglet actif
             let affichage = classements;
             if (tabClassementActif === 'personnel') {
-                // Personnel = classement par score total (on utilise le score du joueur)
-                affichage = [...classements].sort((a, b) => (b.meilleurScore || 0) - (a.meilleurScore || 0));
+                affichage = [...classements].sort((a, b) => (b.soloScore || 0) - (a.soloScore || 0));
             }
 
             const top3 = affichage.slice(0, 3);
             const reste = affichage.slice(3);
 
             let html = '';
-            
-            // Top 3
+
             top3.forEach((j, index) => {
                 const rankClass = ['gold', 'silver', 'bronze'][index];
                 const medal = ['🥇', '🥈', '🥉'][index];
@@ -1263,14 +1333,13 @@
                                 <span class="defaites">💔 ${j.defaites || 0}</span>
                                 <span class="winrate">📊 ${j.winRate || 0}%</span>
                             ` : `
-                                <span>⭐ ${j.meilleurScore || 0}</span>
+                                <span>⭐ ${j.soloScore || 0}</span>
                             `}
                         </div>
                     </div>
                 `;
             });
 
-            // Reste
             reste.forEach((j, index) => {
                 html += `
                     <div class="classement-item">
@@ -1293,12 +1362,10 @@
         }
 
         // ========================================
-        // 🔥 ÉVÉNEMENTS DES BOUTONS
+        // ÉVÉNEMENTS DES BOUTONS
         // ========================================
-
-        // Bouton actualiser les joueurs
         if (btnDuel) {
-            btnDuel.addEventListener('click', function() {
+            btnDuel.addEventListener('click', function () {
                 if (socket) {
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
@@ -1306,26 +1373,22 @@
             });
         }
 
-        // Bouton annuler l'invitation
         if (btnAnnulerDuel) {
-            btnAnnulerDuel.addEventListener('click', function() {
+            btnAnnulerDuel.addEventListener('click', function () {
                 duelInvitation.style.display = 'none';
             });
         }
 
-        // Bouton fermer le duel
         if (btnFermerDuel) {
             btnFermerDuel.addEventListener('click', quitterDuel);
         }
 
-        // Bouton quitter le duel
         if (btnQuitterDuel) {
             btnQuitterDuel.addEventListener('click', quitterDuel);
         }
 
-        // Boutons des onglets classements
         classementTabs.forEach(tab => {
-            tab.addEventListener('click', function() {
+            tab.addEventListener('click', function () {
                 classementTabs.forEach(t => t.classList.remove('active'));
                 this.classList.add('active');
                 tabClassementActif = this.dataset.tab;
@@ -1336,15 +1399,20 @@
         });
 
         // ========================================
-        // 🔥 INITIALISATION
+        // SONS SUR TOUS LES BOUTONS
         // ========================================
+        document.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => SoundManager.click());
+        });
 
+        // ========================================
+        // INITIALISATION FINALE
+        // ========================================
         const savedPseudo = localStorage.getItem('quiz_pseudo');
         if (savedPseudo && savedPseudo.trim().length > 0 && welcomePseudo) {
             welcomePseudo.value = savedPseudo;
         }
-        
-        // On affiche TOUJOURS l'écran d'accueil pour laisser le choix au joueur
+
         if (welcomeOverlay) {
             welcomeOverlay.style.display = 'flex';
             mainGame.style.display = 'none';
@@ -1352,16 +1420,13 @@
             if (welcomePseudo) welcomePseudo.focus();
         }
 
-        window.addEventListener('beforeunload', function() {
+        window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
             sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
         });
 
-        // ========================================
-        // 🔥 ANIMATION POPIN
-        // ========================================
-        
+        // Ajout des animations popIn (pour les notifications)
         const stylePopIn = document.createElement('style');
         stylePopIn.textContent = `
             @keyframes popIn {
@@ -1374,5 +1439,4 @@
         console.log('✅ MAIN.JS chargé avec succès !');
         console.log(`📚 Questions disponibles : Monde ${window.QUESTIONS_MONDE?.length || 0} + Afrique ${window.QUESTIONS_AFRIQUE?.length || 0} = ${(window.QUESTIONS_MONDE?.length || 0) + (window.QUESTIONS_AFRIQUE?.length || 0)}`);
     }
-
 })();

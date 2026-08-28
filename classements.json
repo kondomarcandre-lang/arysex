@@ -5,5 +5,12 @@
     "egalites": 2,
     "parties": 2,
     "meilleurScore": 0
+  },
+  "marc": {
+    "victoires": 0,
+    "defaites": 0,
+    "egalites": 6,
+    "parties": 6,
+    "meilleurScore": 0
   }
 }
