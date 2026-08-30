@@ -1,17 +1,11 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION COMPLÈTE AVEC DUEL, CLASSEMENTS ET JUICE (sons, vibreur, confettis)
+// 🔥 MAIN.JS - VERSION CORRIGÉE (sauvegarde globale)
 // ========================================
 
 (function () {
     'use strict';
 
     console.log('📄 MAIN.JS - Initialisation Juice...');
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
 
     // ========================================
     // 🔊 GESTIONNAIRE DE SONS (Web Audio)
@@ -84,7 +78,7 @@
     }
 
     // ========================================
-    // FONCTIONS DE RANG (inchangées)
+    // FONCTIONS DE RANG
     // ========================================
     function getRang(points) {
         const rangs = [
@@ -124,6 +118,13 @@
     // ========================================
     // GESTION DU DÉFI
     // ========================================
+    let serieActuelle = 0;
+    let meilleureSerie = 0;
+    let palierActuel = 10;
+    let paliersAtteints = [];
+    const BONUS_DEFI = 50;
+    const PALIER_SUIVANT = 5;
+
     function getDateActuelle() {
         return new Date().toDateString();
     }
@@ -167,6 +168,107 @@
         return false;
     }
 
+    // ========================================
+    // VARIABLES GLOBALES
+    // ========================================
+    let questionsActuelles = [];
+    let indexQuestion = 0;
+    let scoreNiveau = 0;
+    let estEnJeu = false;
+    let reponseDonnee = false;
+    let indiceUtilise = false;
+    let estEnChargement = false;
+    let modeActuel = 'monde';
+    let scoreTotal = 0;
+    let niveauActuel = 1;
+    let questionsDejaPosees = new Set();
+    let reponsesParNiveau = {};
+    let timerInterval = null;
+    let tempsRestant = 15;
+    let timerActif = false;
+
+    // Duel
+    let socket = null;
+    let estEnDuel = false;
+    let salleId = null;
+    let duelEnCours = false;
+    let duelTimerInterval = null;
+    let duelTempsRestant = 15;
+    let adversaireId = null;
+    let tabClassementActif = 'duel';
+
+    // ========================================
+    // SAUVEGARDE PAR MODE (globale)
+    // ========================================
+    function sauvegarderDonneesMode(mode) {
+        try {
+            const data = {
+                niveau: niveauActuel,
+                score: scoreTotal,
+                questions: Array.from(questionsDejaPosees)
+            };
+            localStorage.setItem(`quiz_${mode}_data`, JSON.stringify(data));
+        } catch (e) {
+            console.warn('Erreur sauvegarde mode:', e);
+        }
+    }
+
+    function chargerDonneesMode(mode) {
+        try {
+            const data = localStorage.getItem(`quiz_${mode}_data`);
+            if (data) {
+                const parsed = JSON.parse(data);
+                niveauActuel = parsed.niveau || 1;
+                scoreTotal = parsed.score || 0;
+                questionsDejaPosees = new Set(parsed.questions || []);
+            }
+            console.log(`📊 Données chargées pour ${mode}: niveau=${niveauActuel}, score=${scoreTotal}`);
+        } catch (e) {
+            console.warn('Erreur chargement mode:', e);
+        }
+    }
+
+    // ========================================
+    // SAUVEGARDE (globale)
+    // ========================================
+    function sauvegarderPartie() {
+        try {
+            localStorage.setItem('quiz_niveau', niveauActuel);
+            localStorage.setItem('quiz_score', scoreTotal);
+            localStorage.setItem('quiz_mode', modeActuel);
+            sauvegarderDonneesMode(modeActuel);
+        } catch (e) { }
+    }
+
+    function chargerPartie() {
+        try {
+            const savedNiveau = localStorage.getItem('quiz_niveau');
+            const savedScore = localStorage.getItem('quiz_score');
+            const savedMode = localStorage.getItem('quiz_mode');
+            if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
+            if (savedScore) scoreTotal = parseInt(savedScore, 10);
+            if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) {
+                modeActuel = savedMode;
+            }
+            chargerDonneesMode(modeActuel);
+            mettreAJourInterface();
+        } catch (e) { }
+    }
+
+    // ========================================
+    // SAUVEGARDE HISTORIQUE
+    // ========================================
+    function sauvegarderHistorique() {
+        try {
+            localStorage.setItem('quiz_questions_jouees', JSON.stringify(Array.from(questionsDejaPosees)));
+        } catch (e) {
+            console.error('Erreur sauvegarde historique', e);
+        }
+    }
+
+    // ========================================
+    // VÉRIFICATION DÉFI
+    // ========================================
     function verifierDeblocageDefi() {
         if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
             paliersAtteints.push(palierActuel);
@@ -182,17 +284,6 @@
             return true;
         }
         return false;
-    }
-
-    // ========================================
-    // SAUVEGARDE HISTORIQUE
-    // ========================================
-    function sauvegarderHistorique() {
-        try {
-            localStorage.setItem('quiz_questions_jouees', JSON.stringify(Array.from(questionsDejaPosees)));
-        } catch (e) {
-            console.error('Erreur sauvegarde historique', e);
-        }
     }
 
     // ========================================
@@ -242,41 +333,387 @@
     }
 
     // ========================================
-    // VARIABLES GLOBALES
+    // INTERFACE (STATS, RANG)
     // ========================================
-    let questionsActuelles = [];
-    let indexQuestion = 0;
-    let scoreNiveau = 0;
-    let estEnJeu = false;
-    let reponseDonnee = false;
-    let indiceUtilise = false;
-    let estEnChargement = false;
-    let modeActuel = 'monde';
-    let scoreTotal = 0;
-    let niveauActuel = 1;
-    let questionsDejaPosees = new Set();
-    let reponsesParNiveau = {};
-    let timerInterval = null;
-    let tempsRestant = 15;
-    let timerActif = false;
+    let profilScore, scoreTotalSpan, statsCorrect, statsIncorrect, progressFill, dailyPlayers, btnDaily, rangBadge, rangNom, rangBar, rangPoints;
+    let profilNiveau, niveauActuelSpan, profilNom;
+    let questionText, questionProgress, zoneReponses, btnAction, btnIndice, zoneTimer, timerValue;
+    let categorieSpan, difficulteSpan;
 
-    // Duel
-    let socket = null;
-    let estEnDuel = false;
-    let salleId = null;
-    let duelEnCours = false;
-    let duelTimerInterval = null;
-    let duelTempsRestant = 15;
-    let adversaireId = null;
-    let tabClassementActif = 'duel';
+    function mettreAJourStats() {
+        if (profilScore) profilScore.textContent = scoreTotal;
+        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
 
-    // Défi
-    let serieActuelle = 0;
-    let meilleureSerie = 0;
-    let palierActuel = 10;
-    let paliersAtteints = [];
-    const BONUS_DEFI = 50;
-    const PALIER_SUIVANT = 5;
+        const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
+        if (statsCorrect) statsCorrect.textContent = `✅ ${stats.correct}`;
+        if (statsIncorrect) statsIncorrect.textContent = `❌ ${stats.incorrect}`;
+
+        if (progressFill) {
+            const total = stats.correct + stats.incorrect + (indexQuestion || 0);
+            const progress = Math.min(100, (total / 10) * 100);
+            progressFill.style.width = `${progress}%`;
+        }
+
+        if (dailyPlayers) {
+            dailyPlayers.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
+        }
+        if (btnDaily) {
+            btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
+        }
+
+        if (socket && socket.connected) {
+            socket.emit('mettre_a_jour_score', { score: scoreTotal });
+        }
+
+        mettreAJourRang();
+    }
+
+    function mettreAJourRang() {
+        if (rangBadge && rangNom && rangBar && rangPoints) {
+            const rang = getRang(scoreTotal);
+            const progress = getRangProgress(scoreTotal);
+            rangBadge.textContent = rang.badge;
+            rangNom.textContent = rang.nom;
+            rangBar.style.setProperty('--progress', progress + '%');
+            rangPoints.textContent = `${scoreTotal} / ${rang.max === Infinity ? '∞' : rang.max}`;
+        }
+    }
+
+    function mettreAJourInterface() {
+        if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
+        if (profilNiveau) profilNiveau.textContent = niveauActuel;
+        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
+        if (profilScore) profilScore.textContent = scoreTotal;
+        mettreAJourRang();
+    }
+
+    // ========================================
+    // TIMER
+    // ========================================
+    function demarrerTimer() {
+        arreterTimer();
+        tempsRestant = 15;
+        timerActif = true;
+
+        if (timerValue) {
+            timerValue.textContent = '15';
+            timerValue.classList.remove('warning');
+        }
+        if (zoneTimer) {
+            zoneTimer.style.display = 'flex';
+        }
+
+        timerInterval = setInterval(() => {
+            tempsRestant--;
+            if (timerValue) {
+                timerValue.textContent = tempsRestant;
+                if (tempsRestant <= 5) {
+                    timerValue.classList.add('warning');
+                    SoundManager.timerWarning();
+                    Haptic.light();
+                }
+            }
+            if (tempsRestant <= 0) {
+                arreterTimer();
+                verifierReponse(-1);
+            }
+        }, 1000);
+    }
+
+    function arreterTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        timerActif = false;
+    }
+
+    // ========================================
+    // AFFICHER QUESTION
+    // ========================================
+    function afficherQuestion() {
+        if (indexQuestion >= questionsActuelles.length) {
+            terminerNiveau();
+            return;
+        }
+
+        const question = questionsActuelles[indexQuestion];
+        reponseDonnee = false;
+
+        if (zoneTimer) {
+            zoneTimer.style.display = 'flex';
+        }
+        if (timerValue) {
+            timerValue.textContent = '15';
+            timerValue.classList.remove('warning');
+        }
+
+        if (btnIndice) {
+            btnIndice.style.display = indiceUtilise ? 'none' : 'inline-block';
+            btnIndice.disabled = false;
+        }
+
+        if (questionText) questionText.textContent = question.question;
+        if (questionProgress) questionProgress.textContent = `${indexQuestion + 1} / ${questionsActuelles.length}`;
+
+        if (zoneReponses) {
+            zoneReponses.innerHTML = '';
+            const lettres = ['A', 'B', 'C', 'D'];
+            question.options.forEach((opt, idx) => {
+                const button = document.createElement('button');
+                button.className = 'btn-reponse';
+                button.textContent = `${lettres[idx]}. ${opt}`;
+                button.dataset.index = idx;
+                button.onclick = () => verifierReponse(idx);
+                zoneReponses.appendChild(button);
+            });
+        }
+
+        demarrerTimer();
+    }
+
+    // ========================================
+    // VÉRIFIER RÉPONSE
+    // ========================================
+    function verifierReponse(indexChoisi) {
+        if (reponseDonnee) return;
+        reponseDonnee = true;
+        arreterTimer();
+
+        SoundManager.click();
+
+        if (zoneTimer) {
+            zoneTimer.style.display = 'none';
+        }
+
+        const question = questionsActuelles[indexQuestion];
+        const boutons = zoneReponses.querySelectorAll('.btn-reponse');
+
+        boutons.forEach((btn, idx) => {
+            btn.disabled = true;
+            if (idx === question.correct) {
+                btn.classList.add('correct');
+            } else if (idx === indexChoisi && idx !== question.correct) {
+                btn.classList.add('incorrect');
+            }
+        });
+
+        if (indexChoisi === question.correct) {
+            SoundManager.correct();
+            Haptic.medium();
+            lancerConfettis();
+
+            scoreNiveau += 10;
+            scoreTotal += 10;
+            if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
+            serieActuelle++;
+            verifierDeblocageDefi();
+
+            const scoreSpan = document.getElementById('scoreTotal');
+            if (scoreSpan) {
+                scoreSpan.classList.remove('pop-score');
+                void scoreSpan.offsetWidth;
+                scoreSpan.classList.add('pop-score');
+            }
+
+        } else if (indexChoisi >= 0) {
+            SoundManager.incorrect();
+            Haptic.heavy();
+
+            const questionZone = document.getElementById('questionText');
+            if (questionZone) {
+                questionZone.classList.remove('shake');
+                void questionZone.offsetWidth;
+                questionZone.classList.add('shake');
+                setTimeout(() => questionZone.classList.remove('shake'), 500);
+            }
+
+            if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].incorrect++;
+            serieActuelle = 0;
+        }
+
+        mettreAJourStats();
+        sauvegarderPartie();
+        sauvegarderDefi();
+
+        setTimeout(() => {
+            indexQuestion++;
+            afficherQuestion();
+        }, 1500);
+    }
+
+    // ========================================
+    // TERMINER NIVEAU
+    // ========================================
+    function terminerNiveau() {
+        arreterTimer();
+        estEnJeu = false;
+
+        if (zoneTimer) {
+            zoneTimer.style.display = 'none';
+        }
+
+        const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
+        const total = stats.correct + stats.incorrect;
+
+        if (stats.correct < 10) {
+            SoundManager.incorrect();
+            Haptic.pattern();
+            if (questionText) {
+                questionText.textContent = `❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10) - Vous devez avoir 10/10 pour passer.`;
+            }
+            if (zoneReponses) zoneReponses.innerHTML = '';
+            if (btnAction) {
+                btnAction.textContent = "🔄 Refaire le niveau";
+                btnAction.style.display = "block";
+                btnAction.className = "btn-action danger";
+                btnAction.onclick = function () {
+                    questionsDejaPosees.clear();
+                    sauvegarderHistorique();
+                    demarrerNiveau();
+                };
+            }
+            afficherNotification(`❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10)`, 'error');
+            sauvegarderPartie();
+            sauvegarderDefi();
+            mettreAJourStats();
+            return;
+        }
+
+        // ✅ Réussite
+        if (stats.correct === 10) {
+            SoundManager.levelUp();
+            Haptic.pattern();
+            lancerConfettis(['#fdcb6e', '#ff6b6b', '#4a6cf7', '#00b894', '#6c5ce7']);
+            if (questionText) {
+                questionText.textContent = `🏆 PARFAIT ! 10/10 ! Score : ${scoreNiveau} pts - Passage au niveau ${niveauActuel + 1}`;
+            }
+            scoreTotal += 20;
+            afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
+            niveauActuel++;
+            mettreAJourInterface();
+            console.log('✅ Niveau passé à', niveauActuel);
+        }
+
+        if (zoneReponses) zoneReponses.innerHTML = '';
+        if (btnAction) {
+            btnAction.textContent = "🚀 Niveau Suivant";
+            btnAction.style.display = "block";
+            btnAction.className = "btn-action success";
+            btnAction.onclick = function () {
+                console.log('🔄 Clic sur Niveau Suivant, niveauActuel =', niveauActuel);
+                demarrerNiveau();
+            };
+        }
+        sauvegarderPartie();
+        sauvegarderDefi();
+        mettreAJourStats();
+    }
+
+    // ========================================
+    // DÉMARRER NIVEAU
+    // ========================================
+    async function demarrerNiveau() {
+        console.log(`🚀 demarrerNiveau appelé avec niveauActuel =`, niveauActuel);
+        if (estEnChargement) return;
+        estEnChargement = true;
+
+        console.log(`🚀 Démarrage du niveau ${niveauActuel} (mode ${modeActuel})`);
+
+        if (btnIndice) btnIndice.style.display = 'none';
+        indiceUtilise = false;
+        if (btnAction) {
+            btnAction.disabled = true;
+            btnAction.textContent = "⏳ Chargement...";
+            btnAction.style.display = "block";
+        }
+        if (questionText) questionText.textContent = "🔄 Chargement des questions...";
+        if (questionProgress) questionProgress.textContent = "⏳";
+        if (zoneReponses) zoneReponses.innerHTML = "";
+        if (zoneTimer) zoneTimer.style.display = 'none';
+
+        arreterTimer();
+        reponsesParNiveau[niveauActuel] = { correct: 0, incorrect: 0 };
+
+        try {
+            questionsActuelles = genererNiveau(niveauActuel);
+
+            if (!questionsActuelles || questionsActuelles.length === 0) {
+                if (questionText) questionText.textContent = "❌ Erreur : Aucune question disponible";
+                if (btnAction) {
+                    btnAction.textContent = "🔄 Réessayer";
+                    btnAction.disabled = false;
+                }
+                estEnChargement = false;
+                return;
+            }
+
+            console.log(`📚 ${questionsActuelles.length} questions prêtes`);
+
+            indexQuestion = 0;
+            scoreNiveau = 0;
+            reponseDonnee = false;
+            estEnJeu = true;
+            if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
+            if (profilNiveau) profilNiveau.textContent = niveauActuel;
+            if (btnAction) {
+                btnAction.style.display = "none";
+                btnAction.disabled = false;
+            }
+
+            if (questionsActuelles[0]?.categorie && categorieSpan) {
+                categorieSpan.textContent = questionsActuelles[0].categorie;
+            }
+            if (questionsActuelles[0]?.difficulte && difficulteSpan) {
+                const emojis = { 'facile': '🟢', 'moyen': '🟡', 'difficile': '🔴' };
+                difficulteSpan.textContent = emojis[questionsActuelles[0].difficulte] || '❓';
+            }
+
+            mettreAJourStats();
+            afficherQuestion();
+            sauvegarderPartie();
+
+        } catch (error) {
+            console.error('❌ Erreur:', error);
+            if (questionText) questionText.textContent = "❌ Erreur de chargement";
+            if (btnAction) {
+                btnAction.textContent = "🔄 Réessayer";
+                btnAction.disabled = false;
+                btnAction.style.display = "block";
+            }
+        }
+        estEnChargement = false;
+    }
+
+    // ========================================
+    // NOTIFICATION
+    // ========================================
+    function afficherNotification(message, type = 'success') {
+        const div = document.createElement('div');
+        div.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: ${type === 'success' ? '#00b894' : '#ff6b6b'};
+            color: white;
+            padding: 20px 40px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 20px;
+            z-index: 99999;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            animation: popIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+            text-align: center;
+        `;
+        div.textContent = message;
+        document.body.appendChild(div);
+        setTimeout(() => {
+            div.style.opacity = '0';
+            div.style.transition = 'opacity 0.5s ease';
+            setTimeout(() => div.remove(), 500);
+        }, 3000);
+    }
 
     // ========================================
     // INITIALISATION
@@ -290,32 +727,33 @@
         const welcomePseudo = document.getElementById('welcomePseudo');
         const mainGame = document.getElementById('mainGame');
         const mainFooter = document.getElementById('mainFooter');
-        const profilNom = document.getElementById('profilNom');
-        const profilNiveau = document.getElementById('profilNiveau');
-        const profilScore = document.getElementById('profilScore');
-        const questionText = document.getElementById('questionText');
-        const questionProgress = document.getElementById('questionProgress');
-        const zoneReponses = document.getElementById('zoneReponses');
-        const btnAction = document.getElementById('btnAction');
-        const btnIndice = document.getElementById('btnIndice');
-        const progressFill = document.getElementById('progressFill');
-        const niveauActuelSpan = document.getElementById('niveauActuel');
-        const scoreTotalSpan = document.getElementById('scoreTotal');
-        const statsCorrect = document.getElementById('statsCorrect');
-        const statsIncorrect = document.getElementById('statsIncorrect');
-        const categorieSpan = document.getElementById('categorieActuelle');
-        const difficulteSpan = document.getElementById('difficulteActuelle');
+
+        profilNom = document.getElementById('profilNom');
+        profilNiveau = document.getElementById('profilNiveau');
+        profilScore = document.getElementById('profilScore');
+        questionText = document.getElementById('questionText');
+        questionProgress = document.getElementById('questionProgress');
+        zoneReponses = document.getElementById('zoneReponses');
+        btnAction = document.getElementById('btnAction');
+        btnIndice = document.getElementById('btnIndice');
+        progressFill = document.getElementById('progressFill');
+        niveauActuelSpan = document.getElementById('niveauActuel');
+        scoreTotalSpan = document.getElementById('scoreTotal');
+        statsCorrect = document.getElementById('statsCorrect');
+        statsIncorrect = document.getElementById('statsIncorrect');
+        categorieSpan = document.getElementById('categorieActuelle');
+        difficulteSpan = document.getElementById('difficulteActuelle');
         const dailyDate = document.getElementById('dailyDate');
-        const dailyPlayers = document.getElementById('dailyPlayers');
-        const btnDaily = document.getElementById('btnDaily');
-        const rangBadge = document.getElementById('rangBadge');
-        const rangNom = document.getElementById('rangNom');
-        const rangBar = document.getElementById('rangBar');
-        const rangPoints = document.getElementById('rangPoints');
+        dailyPlayers = document.getElementById('dailyPlayers');
+        btnDaily = document.getElementById('btnDaily');
+        rangBadge = document.getElementById('rangBadge');
+        rangNom = document.getElementById('rangNom');
+        rangBar = document.getElementById('rangBar');
+        rangPoints = document.getElementById('rangPoints');
         const btnModeMonde = document.getElementById('btnModeMonde');
         const btnModeAfrique = document.getElementById('btnModeAfrique');
-        const zoneTimer = document.getElementById('zoneTimer');
-        const timerValue = document.getElementById('timerValue');
+        zoneTimer = document.getElementById('zoneTimer');
+        timerValue = document.getElementById('timerValue');
 
         const duelListe = document.getElementById('duelListe');
         const btnDuel = document.getElementById('btnDuel');
@@ -357,70 +795,28 @@
 
             console.log(`🔄 Changement de mode: ${modeActuel} → ${mode}`);
 
-            // Sauvegarde du mode actuel
             sauvegarderDonneesMode(modeActuel);
             modeActuel = mode;
 
-            // Mise à jour visuelle des boutons
             if (btnModeMonde && btnModeAfrique) {
                 btnModeMonde.classList.toggle('active', mode === 'monde');
                 btnModeAfrique.classList.toggle('active', mode === 'afrique');
             }
 
-            // Charge les données du nouveau mode (sans les écraser)
             chargerDonneesMode(mode);
 
-            // 🔥 SUPPRIME CES 3 LIGNES (ne réinitialise plus le niveau/score)
-            // niveauActuel = 1;
-            // scoreTotal = 0;
-            // questionsDejaPosees.clear();
-
-            // Réinitialise seulement le défi (pour éviter de tricher)
             serieActuelle = 0;
             palierActuel = 10;
             paliersAtteints = [];
 
-            // Met à jour l'interface
             mettreAJourInterface();
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
 
-            // Relance le niveau actuel (avec les questions du nouveau mode)
             demarrerNiveau();
 
             console.log(`✅ Mode ${mode} activé avec niveau ${niveauActuel} et score ${scoreTotal}`);
-        }
-
-        // ========================================
-        // SAUVEGARDE PAR MODE
-        // ========================================
-        function sauvegarderDonneesMode(mode) {
-            try {
-                const data = {
-                    niveau: niveauActuel,
-                    score: scoreTotal,
-                    questions: Array.from(questionsDejaPosees)
-                };
-                localStorage.setItem(`quiz_${mode}_data`, JSON.stringify(data));
-            } catch (e) {
-                console.warn('Erreur sauvegarde mode:', e);
-            }
-        }
-
-        function chargerDonneesMode(mode) {
-            try {
-                const data = localStorage.getItem(`quiz_${mode}_data`);
-                if (data) {
-                    const parsed = JSON.parse(data);
-                    niveauActuel = parsed.niveau || 1;
-                    scoreTotal = parsed.score || 0;
-                    questionsDejaPosees = new Set(parsed.questions || []);
-                }
-                console.log(`📊 Données chargées pour ${mode}: niveau=${niveauActuel}, score=${scoreTotal}`);
-            } catch (e) {
-                console.warn('Erreur chargement mode:', e);
-            }
         }
 
         // ========================================
@@ -507,420 +903,6 @@
                 transitionOverlay.style.display = 'none';
                 demarrerNiveau();
             };
-        }
-
-        // ========================================
-        // DÉMARRER NIVEAU (corrigé avec log)
-        // ========================================
-        async function demarrerNiveau() {
-            console.log(`🚀 demarrerNiveau appelé avec niveauActuel =`, niveauActuel);
-            if (estEnChargement) return;
-            estEnChargement = true;
-
-            console.log(`🚀 Démarrage du niveau ${niveauActuel} (mode ${modeActuel})`);
-
-            if (btnIndice) btnIndice.style.display = 'none';
-            indiceUtilise = false;
-            if (btnAction) {
-                btnAction.disabled = true;
-                btnAction.textContent = "⏳ Chargement...";
-                btnAction.style.display = "block";
-            }
-            if (questionText) questionText.textContent = "🔄 Chargement des questions...";
-            if (questionProgress) questionProgress.textContent = "⏳";
-            if (zoneReponses) zoneReponses.innerHTML = "";
-            if (zoneTimer) zoneTimer.style.display = 'none';
-
-            arreterTimer();
-            reponsesParNiveau[niveauActuel] = { correct: 0, incorrect: 0 };
-
-            try {
-                questionsActuelles = genererNiveau(niveauActuel);
-
-                if (!questionsActuelles || questionsActuelles.length === 0) {
-                    if (questionText) questionText.textContent = "❌ Erreur : Aucune question disponible";
-                    if (btnAction) {
-                        btnAction.textContent = "🔄 Réessayer";
-                        btnAction.disabled = false;
-                    }
-                    estEnChargement = false;
-                    return;
-                }
-
-                console.log(`📚 ${questionsActuelles.length} questions prêtes`);
-
-                indexQuestion = 0;
-                scoreNiveau = 0;
-                reponseDonnee = false;
-                estEnJeu = true;
-                if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
-                if (profilNiveau) profilNiveau.textContent = niveauActuel;
-                if (btnAction) {
-                    btnAction.style.display = "none";
-                    btnAction.disabled = false;
-                }
-
-                if (questionsActuelles[0]?.categorie && categorieSpan) {
-                    categorieSpan.textContent = questionsActuelles[0].categorie;
-                }
-                if (questionsActuelles[0]?.difficulte && difficulteSpan) {
-                    const emojis = { 'facile': '🟢', 'moyen': '🟡', 'difficile': '🔴' };
-                    difficulteSpan.textContent = emojis[questionsActuelles[0].difficulte] || '❓';
-                }
-
-                mettreAJourStats();
-                afficherQuestion();
-                sauvegarderPartie();
-
-            } catch (error) {
-                console.error('❌ Erreur:', error);
-                if (questionText) questionText.textContent = "❌ Erreur de chargement";
-                if (btnAction) {
-                    btnAction.textContent = "🔄 Réessayer";
-                    btnAction.disabled = false;
-                    btnAction.style.display = "block";
-                }
-            }
-            estEnChargement = false;
-        }
-
-        // ========================================
-        // AFFICHER QUESTION
-        // ========================================
-        function afficherQuestion() {
-            if (indexQuestion >= questionsActuelles.length) {
-                terminerNiveau();
-                return;
-            }
-
-            const question = questionsActuelles[indexQuestion];
-            reponseDonnee = false;
-
-            if (zoneTimer) {
-                zoneTimer.style.display = 'flex';
-            }
-            if (timerValue) {
-                timerValue.textContent = '15';
-                timerValue.classList.remove('warning');
-            }
-
-            if (btnIndice) {
-                btnIndice.style.display = indiceUtilise ? 'none' : 'inline-block';
-                btnIndice.disabled = false;
-            }
-
-            if (questionText) questionText.textContent = question.question;
-            if (questionProgress) questionProgress.textContent = `${indexQuestion + 1} / ${questionsActuelles.length}`;
-
-            if (zoneReponses) {
-                zoneReponses.innerHTML = '';
-                const lettres = ['A', 'B', 'C', 'D'];
-                question.options.forEach((opt, idx) => {
-                    const button = document.createElement('button');
-                    button.className = 'btn-reponse';
-                    button.textContent = `${lettres[idx]}. ${opt}`;
-                    button.dataset.index = idx;
-                    button.onclick = () => verifierReponse(idx);
-                    zoneReponses.appendChild(button);
-                });
-            }
-
-            demarrerTimer();
-        }
-
-        // ========================================
-        // VÉRIFIER RÉPONSE (avec juice)
-        // ========================================
-        function verifierReponse(indexChoisi) {
-            if (reponseDonnee) return;
-            reponseDonnee = true;
-            arreterTimer();
-
-            SoundManager.click();
-
-            if (zoneTimer) {
-                zoneTimer.style.display = 'none';
-            }
-
-            const question = questionsActuelles[indexQuestion];
-            const boutons = zoneReponses.querySelectorAll('.btn-reponse');
-
-            boutons.forEach((btn, idx) => {
-                btn.disabled = true;
-                if (idx === question.correct) {
-                    btn.classList.add('correct');
-                } else if (idx === indexChoisi && idx !== question.correct) {
-                    btn.classList.add('incorrect');
-                }
-            });
-
-            if (indexChoisi === question.correct) {
-                // ✅ Bonne réponse
-                SoundManager.correct();
-                Haptic.medium();
-                lancerConfettis();
-
-                scoreNiveau += 10;
-                scoreTotal += 10;
-                if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
-                serieActuelle++;
-                verifierDeblocageDefi();
-
-                // Animation pop sur le score total
-                const scoreSpan = document.getElementById('scoreTotal');
-                if (scoreSpan) {
-                    scoreSpan.classList.remove('pop-score');
-                    void scoreSpan.offsetWidth;
-                    scoreSpan.classList.add('pop-score');
-                }
-
-            } else if (indexChoisi >= 0) {
-                // ❌ Mauvaise réponse
-                SoundManager.incorrect();
-                Haptic.heavy();
-
-                // Shake sur la question
-                const questionZone = document.getElementById('questionText');
-                if (questionZone) {
-                    questionZone.classList.remove('shake');
-                    void questionZone.offsetWidth;
-                    questionZone.classList.add('shake');
-                    setTimeout(() => questionZone.classList.remove('shake'), 500);
-                }
-
-                if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].incorrect++;
-                serieActuelle = 0;
-            }
-
-            mettreAJourStats();
-            sauvegarderPartie();
-            sauvegarderDefi();
-
-            setTimeout(() => {
-                indexQuestion++;
-                afficherQuestion();
-            }, 1500);
-        }
-
-        // ========================================
-        // TIMER (avec warning sonore)
-        // ========================================
-        function demarrerTimer() {
-            arreterTimer();
-            tempsRestant = 15;
-            timerActif = true;
-
-            if (timerValue) {
-                timerValue.textContent = '15';
-                timerValue.classList.remove('warning');
-            }
-            if (zoneTimer) {
-                zoneTimer.style.display = 'flex';
-            }
-
-            timerInterval = setInterval(() => {
-                tempsRestant--;
-                if (timerValue) {
-                    timerValue.textContent = tempsRestant;
-                    if (tempsRestant <= 5) {
-                        timerValue.classList.add('warning');
-                        SoundManager.timerWarning();
-                        Haptic.light();
-                    }
-                }
-                if (tempsRestant <= 0) {
-                    arreterTimer();
-                    verifierReponse(-1);
-                }
-            }, 1000);
-        }
-
-        function arreterTimer() {
-            if (timerInterval) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-            }
-            timerActif = false;
-        }
-
-        // ========================================
-        // STATS & INTERFACE
-        // ========================================
-        function mettreAJourStats() {
-            if (profilScore) profilScore.textContent = scoreTotal;
-            if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
-
-            const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
-            if (statsCorrect) statsCorrect.textContent = `✅ ${stats.correct}`;
-            if (statsIncorrect) statsIncorrect.textContent = `❌ ${stats.incorrect}`;
-
-            if (progressFill) {
-                const total = stats.correct + stats.incorrect + (indexQuestion || 0);
-                const progress = Math.min(100, (total / 10) * 100);
-                progressFill.style.width = `${progress}%`;
-            }
-
-            if (dailyPlayers) {
-                dailyPlayers.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
-            }
-            if (btnDaily) {
-                btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
-            }
-
-            if (socket && socket.connected) {
-                socket.emit('mettre_a_jour_score', { score: scoreTotal });
-            }
-
-            mettreAJourRang();
-        }
-
-        function mettreAJourRang() {
-            if (rangBadge && rangNom && rangBar && rangPoints) {
-                const rang = getRang(scoreTotal);
-                const progress = getRangProgress(scoreTotal);
-                rangBadge.textContent = rang.badge;
-                rangNom.textContent = rang.nom;
-                rangBar.style.setProperty('--progress', progress + '%');
-                rangPoints.textContent = `${scoreTotal} / ${rang.max === Infinity ? '∞' : rang.max}`;
-            }
-        }
-
-        function mettreAJourInterface() {
-            if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
-            if (profilNiveau) profilNiveau.textContent = niveauActuel;
-            if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
-            if (profilScore) profilScore.textContent = scoreTotal;
-            mettreAJourRang();
-        }
-
-        // ========================================
-        // TERMINER NIVEAU (corrigé avec mise à jour immédiate)
-        // ========================================
-        function terminerNiveau() {
-            arreterTimer();
-            estEnJeu = false;
-
-            if (zoneTimer) {
-                zoneTimer.style.display = 'none';
-            }
-
-            const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
-            const total = stats.correct + stats.incorrect;
-
-            if (stats.correct < 10) {
-                // Échec
-                SoundManager.incorrect();
-                Haptic.pattern();
-                if (questionText) {
-                    questionText.textContent = `❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10) - Vous devez avoir 10/10 pour passer.`;
-                }
-                if (zoneReponses) zoneReponses.innerHTML = '';
-                if (btnAction) {
-                    btnAction.textContent = "🔄 Refaire le niveau";
-                    btnAction.style.display = "block";
-                    btnAction.className = "btn-action danger";
-                    btnAction.onclick = function () {
-                        questionsDejaPosees.clear();
-                        sauvegarderHistorique();
-                        demarrerNiveau();
-                    };
-                }
-                afficherNotification(`❌ Niveau ${niveauActuel} non validé ! (${stats.correct}/10)`, 'error');
-                sauvegarderPartie();
-                sauvegarderDefi();
-                mettreAJourStats();
-                return;
-            }
-
-            // ✅ Réussite
-            if (stats.correct === 10) {
-                SoundManager.levelUp();
-                Haptic.pattern();
-                lancerConfettis(['#fdcb6e', '#ff6b6b', '#4a6cf7', '#00b894', '#6c5ce7']);
-                if (questionText) {
-                    questionText.textContent = `🏆 PARFAIT ! 10/10 ! Score : ${scoreNiveau} pts - Passage au niveau ${niveauActuel + 1}`;
-                }
-                scoreTotal += 20;
-                afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
-                niveauActuel++;
-                // 🔥 Mise à jour immédiate de l'affichage
-                mettreAJourInterface();
-                console.log('✅ Niveau passé à', niveauActuel);
-            }
-
-            if (zoneReponses) zoneReponses.innerHTML = '';
-            if (btnAction) {
-                btnAction.textContent = "🚀 Niveau Suivant";
-                btnAction.style.display = "block";
-                btnAction.className = "btn-action success";
-                btnAction.onclick = function () {
-                    demarrerNiveau();
-                };
-            }
-            sauvegarderPartie();
-            sauvegarderDefi();
-            mettreAJourStats();
-        }
-
-        // ========================================
-        // SAUVEGARDE
-        // ========================================
-        function sauvegarderPartie() {
-            try {
-                localStorage.setItem('quiz_niveau', niveauActuel);
-                localStorage.setItem('quiz_score', scoreTotal);
-                localStorage.setItem('quiz_mode', modeActuel);
-                sauvegarderDonneesMode(modeActuel);
-            } catch (e) { }
-        }
-
-        function chargerPartie() {
-            try {
-                const savedNiveau = localStorage.getItem('quiz_niveau');
-                const savedScore = localStorage.getItem('quiz_score');
-                const savedMode = localStorage.getItem('quiz_mode');
-                if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
-                if (savedScore) scoreTotal = parseInt(savedScore, 10);
-                if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) {
-                    modeActuel = savedMode;
-                    if (btnModeMonde && btnModeAfrique) {
-                        btnModeMonde.classList.toggle('active', modeActuel === 'monde');
-                        btnModeAfrique.classList.toggle('active', modeActuel === 'afrique');
-                    }
-                }
-                chargerDonneesMode(modeActuel);
-                mettreAJourInterface();
-            } catch (e) { }
-        }
-
-        // ========================================
-        // NOTIFICATION
-        // ========================================
-        function afficherNotification(message, type = 'success') {
-            const div = document.createElement('div');
-            div.style.cssText = `
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: ${type === 'success' ? '#00b894' : '#ff6b6b'};
-                color: white;
-                padding: 20px 40px;
-                border-radius: 16px;
-                font-weight: 700;
-                font-size: 20px;
-                z-index: 99999;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-                animation: popIn 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
-                text-align: center;
-            `;
-            div.textContent = message;
-            document.body.appendChild(div);
-            setTimeout(() => {
-                div.style.opacity = '0';
-                div.style.transition = 'opacity 0.5s ease';
-                setTimeout(() => div.remove(), 500);
-            }, 3000);
         }
 
         // ========================================
@@ -1443,4 +1425,12 @@
         console.log('✅ MAIN.JS chargé avec succès !');
         console.log(`📚 Questions disponibles : Monde ${window.QUESTIONS_MONDE?.length || 0} + Afrique ${window.QUESTIONS_AFRIQUE?.length || 0} = ${(window.QUESTIONS_MONDE?.length || 0) + (window.QUESTIONS_AFRIQUE?.length || 0)}`);
     }
+
+    // Si le DOM est déjà chargé, on lance init()
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
 })();
