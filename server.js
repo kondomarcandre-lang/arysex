@@ -26,8 +26,9 @@ app.use(express.static('.'));
 // 📦 DONNÉES EN MÉMOIRE
 // ========================================
 
-const joueurs = {};           // { socketId: { pseudo, niveau, score, enLigne, enDuel, salleId, victoires, defaites, egalites } }
-const salles = {};            // { salleId: { joueur1, joueur2, questions, scores, reponses, indexQuestion, terminee, timer } }
+const joueurs = {};
+const salles = {};
+const invitations = {};
 
 // ========================================
 // 💾 SAUVEGARDE DES CLASSEMENTS
@@ -70,10 +71,9 @@ io.on('connection', (socket) => {
 
     socket.on('enregistrer', (data) => {
         const { pseudo, niveau, score } = data;
-        
-        // Récupérer les stats du joueur depuis les classements
+
         const stats = classements[pseudo] || { victoires: 0, defaites: 0, egalites: 0, parties: 0, meilleurScore: 0 };
-        
+
         joueurs[socket.id] = {
             pseudo: pseudo || 'Anonyme',
             niveau: niveau || 1,
@@ -88,24 +88,21 @@ io.on('connection', (socket) => {
             meilleurScore: stats.meilleurScore || 0
         };
 
-        // Mettre à jour la liste des joueurs en ligne
         io.emit('joueurs_en_ligne', getJoueursEnLigne());
         io.emit('classements', getClassements());
         console.log(`✅ ${joueurs[socket.id].pseudo} est en ligne`);
     });
 
-
-        // ========================================
+    // ========================================
     // 📊 METTRE À JOUR LE SCORE SOLO
     // ========================================
 
     socket.on('mettre_a_jour_score', (data) => {
         const joueur = joueurs[socket.id];
         if (!joueur) return;
-        
+
         const { score } = data;
-        
-        // Initialiser les stats du joueur si elles n'existent pas
+
         if (!classements[joueur.pseudo]) {
             classements[joueur.pseudo] = {
                 victoires: 0,
@@ -116,13 +113,10 @@ io.on('connection', (socket) => {
                 soloScore: 0
             };
         }
-        
-        // Mettre à jour le soloScore si le nouveau score est plus élevé
+
         if (score > classements[joueur.pseudo].soloScore) {
             classements[joueur.pseudo].soloScore = score;
             sauvegarderClassements(classements);
-            
-            // Diffuser la mise à jour à tous les joueurs
             io.emit('classements', getClassements());
             console.log(`📊 ${joueur.pseudo} a atteint ${score} pts en solo`);
         }
@@ -145,7 +139,7 @@ io.on('connection', (socket) => {
     });
 
     // ========================================
-    // 🎮 INVITATION EN DUEL
+    // 🎮 INVITATION EN DUEL (nouveau flux)
     // ========================================
 
     socket.on('inviter_duel', (data) => {
@@ -157,41 +151,29 @@ io.on('connection', (socket) => {
             socket.emit('erreur', { message: 'Adversaire indisponible' });
             return;
         }
+        if (joueur.enDuel) {
+            socket.emit('erreur', { message: 'Vous êtes déjà en duel' });
+            return;
+        }
 
-        // Créer une salle de duel
-        const salleId = `salle_${Date.now()}`;
-        salles[salleId] = {
-            joueur1: socket.id,
-            joueur2: adversaireId,
+        const invitationId = `invit_${Date.now()}_${socket.id}`;
+        invitations[invitationId] = {
+            id: invitationId,
+            inviteurId: socket.id,
+            inviteurPseudo: joueur.pseudo,
+            adversaireId: adversaireId,
             questions: questions || [],
-            scores: { [socket.id]: 0, [adversaireId]: 0 },
-            reponses: { [socket.id]: 0, [adversaireId]: 0 },
-            indexQuestion: 0,
-            terminee: false,
-            timer: 15
+            timestamp: Date.now()
         };
 
-        // Mettre à jour les joueurs
-        joueurs[socket.id].enDuel = true;
-        joueurs[socket.id].salleId = salleId;
-        joueurs[adversaireId].enDuel = true;
-        joueurs[adversaireId].salleId = salleId;
-
-        // Notifier les deux joueurs
-        io.to(socket.id).emit('duel_debute', {
-            salleId,
-            adversaire: adversaire.pseudo,
-            estCreateur: true
+        // Envoyer UNIQUEMENT à l'adversaire
+        io.to(adversaireId).emit('invitation_duel', {
+            invitationId,
+            inviteurPseudo: joueur.pseudo,
+            inviteurId: socket.id
         });
 
-        io.to(adversaireId).emit('duel_debute', {
-            salleId,
-            adversaire: joueur.pseudo,
-            estCreateur: false
-        });
-
-        io.emit('joueurs_en_ligne', getJoueursEnLigne());
-        console.log(`⚔️ Duel lancé: ${joueur.pseudo} vs ${adversaire.pseudo}`);
+        console.log(`📨 Invitation: ${joueur.pseudo} → ${adversaire.pseudo}`);
     });
 
     // ========================================
@@ -199,87 +181,104 @@ io.on('connection', (socket) => {
     // ========================================
 
     socket.on('repondre_invitation', (data) => {
-        const { adversaireId, accepte } = data;
-        const joueur = joueurs[socket.id];
-        const adversaire = joueurs[adversaireId];
+        const { invitationId, accepte } = data;
+        const invitation = invitations[invitationId];
+        if (!invitation) return;
 
-        if (!adversaire || !adversaire.enLigne) return;
+        const inviteur = joueurs[invitation.inviteurId];
+        const adversaire = joueurs[invitation.adversaireId];
+        const inviteurId = invitation.inviteurId;
+        const adversaireId = invitation.adversaireId;
 
+        delete invitations[invitationId];
+
+        // ===== REFUS =====
         if (!accepte) {
-            io.to(adversaireId).emit('invitation_refusee', {
-                joueur: joueur.pseudo
-            });
+            if (inviteur) {
+                io.to(inviteurId).emit('invitation_refusee', {
+                    joueur: adversaire?.pseudo || 'Adversaire'
+                });
+            }
+            console.log(`❌ ${adversaire?.pseudo} a refusé le duel de ${inviteur?.pseudo}`);
             return;
         }
 
-        // L'invitation est acceptée, on lance le duel
-        const salleId = joueur.salleId;
-        if (salleId && salles[salleId]) {
-            io.to(adversaireId).emit('demarrer_duel', {
-                adversaire: joueur.pseudo,
-                questions: salles[salleId].questions
-            });
-            
-            io.to(socket.id).emit('demarrer_duel', {
-                adversaire: adversaire.pseudo,
-                questions: salles[salleId].questions
-            });
+        // ===== ACCEPTATION =====
+        if (!inviteur || !adversaire) {
+            io.to(inviteurId).emit('erreur', { message: 'Adversaire déconnecté' });
+            return;
         }
+
+        const salleId = `salle_${Date.now()}`;
+        salles[salleId] = {
+            joueur1: inviteurId,
+            joueur2: adversaireId,
+            questions: invitation.questions,
+            scores: { [inviteurId]: 0, [adversaireId]: 0 },
+            reponses: { [inviteurId]: 0, [adversaireId]: 0 },
+            indexQuestion: 0,
+            terminee: false,
+            termines: {}
+        };
+
+        joueurs[inviteurId].enDuel = true;
+        joueurs[inviteurId].salleId = salleId;
+        joueurs[adversaireId].enDuel = true;
+        joueurs[adversaireId].salleId = salleId;
+
+        // Envoyer les questions AUX DEUX joueurs
+        io.to(inviteurId).emit('demarrer_duel', {
+            salleId,
+            adversaire: adversaire.pseudo,
+            questions: invitation.questions,
+            estCreateur: true
+        });
+        io.to(adversaireId).emit('demarrer_duel', {
+            salleId,
+            adversaire: inviteur.pseudo,
+            questions: invitation.questions,
+            estCreateur: false
+        });
+
+        io.emit('joueurs_en_ligne', getJoueursEnLigne());
+        console.log(`⚔️ Duel lancé: ${inviteur.pseudo} vs ${adversaire.pseudo} (${invitation.questions.length} questions)`);
     });
 
     // ========================================
-    // 📤 ENVOYER UNE RÉPONSE EN DUEL
+    // 📤 RÉPONSE EN DUEL
     // ========================================
 
     socket.on('reponse_duel', (data) => {
-        const { salleId, indexQuestion, reponse, tempsRestant } = data;
+        const { salleId, score, bonnes } = data;
         const salle = salles[salleId];
         if (!salle || salle.terminee) return;
 
-        const joueur = joueurs[socket.id];
-        const question = salle.questions[indexQuestion];
-        if (!question) return;
+        salle.scores[socket.id] = score || 0;
+        salle.reponses[socket.id] = bonnes || 0;
 
-        // Vérifier la réponse
-        const estCorrecte = (reponse === question.correct);
-        if (estCorrecte) {
-            const bonusTemps = Math.max(0, Math.floor(tempsRestant / 3) * 5);
-            salle.scores[socket.id] += 10 + bonusTemps;
-            salle.reponses[socket.id]++;
-        }
-
-        // Envoyer le résultat au joueur
         const adversaireId = salle.joueur1 === socket.id ? salle.joueur2 : salle.joueur1;
-        socket.emit('resultat_duel', {
-            correct: estCorrecte,
-            score: salle.scores[socket.id],
-            adversaireScore: salle.scores[adversaireId] || 0
+        io.to(adversaireId).emit('adversaire_repondu', {
+            adversaireScore: score || 0,
+            adversaireBonnes: bonnes || 0
         });
+    });
 
-        // Passer à la question suivante
-        if (indexQuestion < salle.questions.length - 1) {
-            // METTRE À JOUR L'INDEX DANS LA SALLE (CORRECTION ICI)
-            salle.indexQuestion = indexQuestion + 1;
+    // ========================================
+    // 🏁 UN JOUEUR A TERMINÉ SES QUESTIONS
+    // ========================================
 
-            setTimeout(() => {
-                if (!salle.terminee) {
-                    const nextIndex = salle.indexQuestion;
-                    const nextQuestion = salle.questions[nextIndex];
-                    io.to(salle.joueur1).emit('question_suivante', {
-                        index: nextIndex,
-                        question: nextQuestion
-                    });
-                    io.to(salle.joueur2).emit('question_suivante', {
-                        index: nextIndex,
-                        question: nextQuestion
-                    });
-                }
-            }, 1000);
+    socket.on('duel_termine', (data) => {
+        const { salleId } = data;
+        const salle = salles[salleId];
+        if (!salle || salle.terminee) return;
+
+        salle.termines[socket.id] = true;
+
+        if (salle.termines[salle.joueur1] && salle.termines[salle.joueur2]) {
+            terminerDuel(salleId);
         } else {
-            // Fin du duel
-            setTimeout(() => {
-                terminerDuel(salleId);
-            }, 1500);
+            const autreId = salle.joueur1 === socket.id ? salle.joueur2 : salle.joueur1;
+            io.to(autreId).emit('adversaire_termine', {});
         }
     });
 
@@ -292,13 +291,13 @@ io.on('connection', (socket) => {
         if (!salle || salle.terminee) return;
 
         salle.terminee = true;
-        
+
         const score1 = salle.scores[salle.joueur1] || 0;
         const score2 = salle.scores[salle.joueur2] || 0;
-        
+
         let gagnantId = null;
         let statut = 'egalite';
-        
+
         if (score1 > score2) {
             gagnantId = salle.joueur1;
             statut = 'victoire';
@@ -307,14 +306,13 @@ io.on('connection', (socket) => {
             statut = 'victoire';
         }
 
-        // Mettre à jour les classements
         const joueur1 = joueurs[salle.joueur1];
         const joueur2 = joueurs[salle.joueur2];
-        
+
         if (joueur1 && joueur2) {
             joueur1.parties++;
             joueur2.parties++;
-            
+
             if (gagnantId === salle.joueur1) {
                 joueur1.victoires++;
                 joueur2.defaites++;
@@ -327,26 +325,26 @@ io.on('connection', (socket) => {
                 joueur1.egalites++;
                 joueur2.egalites++;
             }
-            
-            // Sauvegarder dans les classements globaux
+
             classements[joueur1.pseudo] = {
                 victoires: joueur1.victoires,
                 defaites: joueur1.defaites,
                 egalites: joueur1.egalites,
                 parties: joueur1.parties,
-                meilleurScore: joueur1.meilleurScore
+                meilleurScore: joueur1.meilleurScore,
+                soloScore: classements[joueur1.pseudo]?.soloScore || 0
             };
             classements[joueur2.pseudo] = {
                 victoires: joueur2.victoires,
                 defaites: joueur2.defaites,
                 egalites: joueur2.egalites,
                 parties: joueur2.parties,
-                meilleurScore: joueur2.meilleurScore
+                meilleurScore: joueur2.meilleurScore,
+                soloScore: classements[joueur2.pseudo]?.soloScore || 0
             };
             sauvegarderClassements(classements);
         }
 
-        // Résultats
         const resultats = {
             joueur1: {
                 pseudo: joueur1?.pseudo || 'Joueur 1',
@@ -362,11 +360,9 @@ io.on('connection', (socket) => {
             statut: statut
         };
 
-        // Envoyer les résultats aux deux joueurs
         io.to(salle.joueur1).emit('fin_duel', resultats);
         io.to(salle.joueur2).emit('fin_duel', resultats);
 
-        // Libérer les joueurs
         if (joueurs[salle.joueur1]) {
             joueurs[salle.joueur1].enDuel = false;
             joueurs[salle.joueur1].salleId = null;
@@ -376,7 +372,6 @@ io.on('connection', (socket) => {
             joueurs[salle.joueur2].salleId = null;
         }
 
-        // Supprimer la salle après 30 secondes
         setTimeout(() => {
             delete salles[salleId];
         }, 30000);
@@ -393,7 +388,6 @@ io.on('connection', (socket) => {
     function getClassements() {
         const result = [];
         for (const [pseudo, stats] of Object.entries(classements)) {
-            // Vérifier si le joueur est en ligne
             const enLigne = Object.values(joueurs).some(j => j.pseudo === pseudo && j.enLigne);
             result.push({
                 pseudo: pseudo,
@@ -402,11 +396,11 @@ io.on('connection', (socket) => {
                 egalites: stats.egalites || 0,
                 parties: stats.parties || 0,
                 meilleurScore: stats.meilleurScore || 0,
+                soloScore: stats.soloScore || 0,
                 enLigne: enLigne,
                 winRate: stats.parties > 0 ? Math.round((stats.victoires / stats.parties) * 100) : 0
             });
         }
-        // Trier par victoires, puis par winRate
         result.sort((a, b) => {
             if (b.victoires !== a.victoires) return b.victoires - a.victoires;
             return b.winRate - a.winRate;
@@ -445,12 +439,11 @@ io.on('connection', (socket) => {
         const joueur = joueurs[socket.id];
         if (joueur) {
             console.log(`👋 ${joueur.pseudo} s'est déconnecté`);
-            
-            // Si le joueur était en duel, terminer le duel
+
             if (joueur.salleId && salles[joueur.salleId]) {
                 terminerDuel(joueur.salleId);
             }
-            
+
             delete joueurs[socket.id];
             io.emit('joueurs_en_ligne', getJoueursEnLigne());
             io.emit('classements', getClassements());
@@ -464,14 +457,12 @@ io.on('connection', (socket) => {
     socket.on('reconnecter', (data) => {
         const { pseudo } = data;
         if (pseudo) {
-            // Chercher si le joueur existe déjà
             for (const [id, j] of Object.entries(joueurs)) {
                 if (j.pseudo === pseudo) {
                     joueurs[id].enLigne = false;
                     delete joueurs[id];
                 }
             }
-            // Réenregistrer
             socket.emit('enregistrer', {
                 pseudo: pseudo,
                 niveau: joueurs[socket.id]?.niveau || 1,
