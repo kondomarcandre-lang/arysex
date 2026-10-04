@@ -24,42 +24,20 @@
     <meta name="mobile-web-app-capable" content="yes">
 
     <style>
-        
-
         @keyframes shake {
-
-            0%,
-            100% {
-                transform: translateX(0);
-            }
-
-            20% {
-                transform: translateX(-15px);
-            }
-
-            40% {
-                transform: translateX(15px);
-            }
-
-            60% {
-                transform: translateX(-10px);
-            }
-
-            80% {
-                transform: translateX(10px);
-            }
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-15px); }
+            40% { transform: translateX(15px); }
+            60% { transform: translateX(-10px); }
+            80% { transform: translateX(10px); }
         }
 
-        .shake {
-            animation: shake 0.4s ease;
-        }
+        .shake { animation: shake 0.4s ease; }
 
         .confetti-container {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             pointer-events: none;
             z-index: 99999;
             overflow: hidden;
@@ -67,54 +45,27 @@
 
         .confetti-piece {
             position: absolute;
-            width: 10px;
-            height: 10px;
+            width: 10px; height: 10px;
             top: -10px;
             animation: confettiFall linear forwards;
         }
 
         @keyframes confettiFall {
-            0% {
-                transform: translateY(0) rotate(0deg);
-                opacity: 1;
-            }
-
-            100% {
-                transform: translateY(110vh) rotate(720deg);
-                opacity: 0;
-            }
+            0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(110vh) rotate(720deg); opacity: 0; }
         }
 
-        /* Pop sur le score */
         @keyframes popScore {
-            0% {
-                transform: scale(1);
-            }
-
-            50% {
-                transform: scale(1.3);
-                color: #fdcb6e;
-            }
-
-            100% {
-                transform: scale(1);
-            }
+            0% { transform: scale(1); }
+            50% { transform: scale(1.3); color: #fdcb6e; }
+            100% { transform: scale(1); }
         }
 
-        .pop-score {
-            animation: popScore 0.4s ease;
-        }
+        .pop-score { animation: popScore 0.4s ease; }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
-        html,
-        body {
-            height: 100%;
-        }
+        html, body { height: 100%; }
 
         body {
             display: flex;
@@ -151,10 +102,7 @@
             line-height: 1.2;
         }
 
-        header h1 span {
-            font-weight: 700;
-            color: #6c5ce7;
-        }
+        header h1 span { font-weight: 700; color: #6c5ce7; }
 
         header h2 {
             font-size: 14px;
@@ -162,6 +110,82 @@
             color: #636e72;
             line-height: 1.2;
             margin-top: 2px;
+        }
+
+        /* ============================================
+           BARRE D'ONGLETS (SOLO / DUEL)
+           ============================================ */
+        .tabs-container {
+            display: flex;
+            gap: 8px;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 5px;
+            background: #e8ecf1;
+            border-radius: 50px;
+            flex-shrink: 0;
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 50px;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: transparent;
+            color: #636e72;
+        }
+
+        .tab-btn.active {
+            background: #ffffff;
+            color: #2d3436;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .tab-btn:hover:not(.active) { background: rgba(255, 255, 255, 0.5); }
+
+        .tab-content {
+            display: none;
+            width: 100%;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .tab-content.active { display: block; }
+
+        /* ============================================
+           ÉCRAN DE SÉLECTION DU MODE
+           ============================================ */
+        .zoneSelectionMode {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            background: #ffffff;
+            border-radius: 20px;
+            padding: 40px 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(0, 0, 0, 0.04);
+            text-align: center;
+        }
+
+        .zoneSelectionMode h2 {
+            font-size: 22px;
+            font-weight: 600;
+            color: #2d3436;
+            margin-bottom: 4px;
+        }
+
+        .zoneSelectionMode .btn-action {
+            max-width: 320px;
+            width: 100%;
+            margin-top: 8px;
         }
 
         /* ===== MAIN - CARD PRINCIPALE ===== */
@@ -182,20 +206,14 @@
             max-height: none;
         }
 
-        /* ===== SEPARATEUR ===== */
         .separator {
             border: none;
             border-top: 1px solid #eef0f3;
             margin: 6px 0;
         }
 
-        .spacer {
-            height: 6px;
-        }
-
-        .spacer-sm {
-            height: 4px;
-        }
+        .spacer { height: 6px; }
+        .spacer-sm { height: 4px; }
 
         /* ===== PROFIL ===== */
         .zoneProfil {
@@ -211,8 +229,7 @@
 
         .profil-avatar {
             font-size: 24px;
-            width: 44px;
-            height: 44px;
+            width: 44px; height: 44px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -221,10 +238,7 @@
             flex-shrink: 0;
         }
 
-        .profil-info {
-            flex: 1;
-            min-width: 0;
-        }
+        .profil-info { flex: 1; min-width: 0; }
 
         .profil-nom {
             font-size: 18px;
@@ -239,17 +253,13 @@
             line-height: 1.3;
         }
 
-        .profil-stats span {
-            color: #ffffff;
-            font-weight: 600;
-        }
+        .profil-stats span { color: #ffffff; font-weight: 600; }
 
         .profil-btn {
             background: rgba(255, 255, 255, 0.15);
             border: none;
             color: #ffffff;
-            width: 36px;
-            height: 36px;
+            width: 36px; height: 36px;
             border-radius: 50%;
             font-size: 16px;
             cursor: pointer;
@@ -264,6 +274,33 @@
             background: rgba(255, 255, 255, 0.3);
             transform: scale(1.1);
         }
+
+        /* ===== BOUTON RETOUR MODE ===== */
+        .btn-retour-mode {
+            width: 100%;
+            padding: 10px 16px;
+            margin: 4px 0;
+            border: 2px dashed #4a6cf7;
+            border-radius: 12px;
+            background: transparent;
+            color: #4a6cf7;
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .btn-retour-mode:hover {
+            background: #f0f4ff;
+            border-style: solid;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(74, 108, 247, 0.15);
+        }
+
+        .btn-retour-mode:active { transform: translateY(0); }
 
         /* ===== MODES ===== */
         .zoneMode {
@@ -288,10 +325,7 @@
             text-align: center;
         }
 
-        .btn-mode:hover {
-            border-color: #4a6cf7;
-            background: #f8f9ff;
-        }
+        .btn-mode:hover { border-color: #4a6cf7; background: #f8f9ff; }
 
         .btn-mode.active {
             border-color: #4a6cf7;
@@ -313,15 +347,9 @@
             flex-shrink: 0;
         }
 
-        .rang-badge {
-            font-size: 28px;
-            line-height: 1;
-        }
+        .rang-badge { font-size: 28px; line-height: 1; }
 
-        .rang-info {
-            flex: 1;
-            min-width: 0;
-        }
+        .rang-info { flex: 1; min-width: 0; }
 
         .rang-nom {
             font-size: 15px;
@@ -349,8 +377,7 @@
         .rang-bar::after {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
+            top: 0; left: 0;
             height: 100%;
             width: var(--progress, 0%);
             background: linear-gradient(90deg, #4a6cf7, #6c5ce7);
@@ -389,11 +416,7 @@
             flex-wrap: wrap;
         }
 
-        .niveau-label {
-            color: #636e72;
-            font-weight: 400;
-            font-size: 11px;
-        }
+        .niveau-label { color: #636e72; font-weight: 400; font-size: 11px; }
 
         .niveau-numero {
             font-size: 16px;
@@ -406,9 +429,7 @@
             text-align: center;
         }
 
-        .niveau-separateur {
-            opacity: 0.3;
-        }
+        .niveau-separateur { opacity: 0.3; }
 
         .niveau-categorie {
             font-size: 12px;
@@ -422,9 +443,7 @@
             white-space: nowrap;
         }
 
-        .niveau-difficulte {
-            font-size: 16px;
-        }
+        .niveau-difficulte { font-size: 16px; }
 
         .zoneScoreTotal {
             font-size: 14px;
@@ -518,9 +537,7 @@
             flex-shrink: 0;
         }
 
-        .timer-icon {
-            font-size: 18px;
-        }
+        .timer-icon { font-size: 18px; }
 
         .timer-value {
             font-size: 26px;
@@ -535,11 +552,7 @@
             animation: pulse 0.5s ease infinite alternate;
         }
 
-        .timer-label {
-            color: #636e72;
-            font-weight: 400;
-            font-size: 13px;
-        }
+        .timer-label { color: #636e72; font-weight: 400; font-size: 13px; }
 
         .timer-bonus {
             font-size: 14px;
@@ -552,15 +565,8 @@
         }
 
         @keyframes pulse {
-            from {
-                transform: scale(1);
-                opacity: 1;
-            }
-
-            to {
-                transform: scale(1.15);
-                opacity: 0.7;
-            }
+            from { transform: scale(1); opacity: 1; }
+            to { transform: scale(1.15); opacity: 0.7; }
         }
 
         /* ===== RÉPONSES ===== */
@@ -598,10 +604,7 @@
             box-shadow: 0 4px 15px rgba(74, 108, 247, 0.1);
         }
 
-        .btn-reponse:disabled {
-            cursor: not-allowed;
-            opacity: 0.5;
-        }
+        .btn-reponse:disabled { cursor: not-allowed; opacity: 0.5; }
 
         .btn-reponse.correct {
             border-color: #00b894;
@@ -687,13 +690,8 @@
             box-shadow: none !important;
         }
 
-        .btn-action.success {
-            background: linear-gradient(135deg, #00b894, #00a381);
-        }
-
-        .btn-action.danger {
-            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-        }
+        .btn-action.success { background: linear-gradient(135deg, #00b894, #00a381); }
+        .btn-action.danger { background: linear-gradient(135deg, #ff6b6b, #ee5a24); }
 
         /* ===== STATS ===== */
         .zoneStats {
@@ -714,15 +712,8 @@
             border: 1px solid #e8ecf1;
         }
 
-        .zoneStats span:first-child {
-            color: #00b894;
-            border-color: #b2dfdb;
-        }
-
-        .zoneStats span:last-child {
-            color: #ff6b6b;
-            border-color: #ffcdd2;
-        }
+        .zoneStats span:first-child { color: #00b894; border-color: #b2dfdb; }
+        .zoneStats span:last-child { color: #ff6b6b; border-color: #ffcdd2; }
 
         /* ===== DÉFI DU JOUR ===== */
         .zoneDaily {
@@ -743,9 +734,7 @@
             gap: 12px;
         }
 
-        .daily-icon {
-            font-size: 22px;
-        }
+        .daily-icon { font-size: 22px; }
 
         .daily-title {
             font-weight: 700;
@@ -781,15 +770,11 @@
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
         }
 
-        .daily-btn:disabled {
-            opacity: 0.7;
-            cursor: not-allowed;
-        }
+        .daily-btn:disabled { opacity: 0.7; cursor: not-allowed; }
 
         /* ========================================
            SECTION DUEL
            ======================================== */
-
         .zoneDuel {
             background: #f8f9fc;
             border-radius: 14px;
@@ -806,9 +791,7 @@
             margin-bottom: 10px;
         }
 
-        .duel-icon {
-            font-size: 22px;
-        }
+        .duel-icon { font-size: 22px; }
 
         .duel-title {
             font-weight: 700;
@@ -843,14 +826,8 @@
             overflow-y: auto;
         }
 
-        .duel-liste::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .duel-liste::-webkit-scrollbar-thumb {
-            background: #4a6cf7;
-            border-radius: 10px;
-        }
+        .duel-liste::-webkit-scrollbar { width: 4px; }
+        .duel-liste::-webkit-scrollbar-thumb { background: #4a6cf7; border-radius: 10px; }
 
         .duel-item {
             display: flex;
@@ -868,16 +845,8 @@
             color: #2d3436;
         }
 
-        .duel-item .duel-infos {
-            font-size: 11px;
-            color: #636e72;
-        }
-
-        .duel-item .duel-statut {
-            font-size: 11px;
-            color: #00b894;
-            font-weight: 600;
-        }
+        .duel-item .duel-infos { font-size: 11px; color: #636e72; }
+        .duel-item .duel-statut { font-size: 11px; color: #00b894; font-weight: 600; }
 
         .duel-item .btn-defier {
             padding: 4px 16px;
@@ -918,10 +887,7 @@
             margin-top: 8px;
         }
 
-        .duel-invitation p {
-            font-size: 14px;
-            color: #2d3436;
-        }
+        .duel-invitation p { font-size: 14px; color: #2d3436; }
 
         .duel-invitation .duel-attente {
             color: #fdcb6e;
@@ -957,19 +923,12 @@
             margin-top: 8px;
         }
 
-        .duel-statut-icone {
-            font-size: 18px;
-        }
-
-        .duel-statut-texte {
-            font-size: 14px;
-            color: #2d3436;
-        }
+        .duel-statut-icone { font-size: 18px; }
+        .duel-statut-texte { font-size: 14px; color: #2d3436; }
 
         /* ========================================
            CLASSEMENTS
            ======================================== */
-
         .zoneClassement {
             background: #f8f9fc;
             border-radius: 14px;
@@ -986,9 +945,7 @@
             margin-bottom: 10px;
         }
 
-        .classement-icon {
-            font-size: 22px;
-        }
+        .classement-icon { font-size: 22px; }
 
         .classement-title {
             font-weight: 700;
@@ -1020,9 +977,7 @@
             color: white;
         }
 
-        .classement-tab:hover:not(.active) {
-            background: #dfe6e9;
-        }
+        .classement-tab:hover:not(.active) { background: #dfe6e9; }
 
         .classement-liste {
             display: flex;
@@ -1032,14 +987,8 @@
             overflow-y: auto;
         }
 
-        .classement-liste::-webkit-scrollbar {
-            width: 4px;
-        }
-
-        .classement-liste::-webkit-scrollbar-thumb {
-            background: #4a6cf7;
-            border-radius: 10px;
-        }
+        .classement-liste::-webkit-scrollbar { width: 4px; }
+        .classement-liste::-webkit-scrollbar-thumb { background: #4a6cf7; border-radius: 10px; }
 
         .classement-item {
             display: flex;
@@ -1059,17 +1008,9 @@
             text-align: center;
         }
 
-        .classement-item .rank.gold {
-            color: #fdcb6e;
-        }
-
-        .classement-item .rank.silver {
-            color: #b2bec3;
-        }
-
-        .classement-item .rank.bronze {
-            color: #e17055;
-        }
+        .classement-item .rank.gold { color: #fdcb6e; }
+        .classement-item .rank.silver { color: #b2bec3; }
+        .classement-item .rank.bronze { color: #e17055; }
 
         .classement-item .nom {
             font-weight: 600;
@@ -1090,22 +1031,10 @@
             gap: 12px;
         }
 
-        .classement-item .stats span {
-            white-space: nowrap;
-        }
-
-        .classement-item .stats .victoires {
-            color: #00b894;
-        }
-
-        .classement-item .stats .defaites {
-            color: #ff6b6b;
-        }
-
-        .classement-item .stats .winrate {
-            color: #4a6cf7;
-            font-weight: 700;
-        }
+        .classement-item .stats span { white-space: nowrap; }
+        .classement-item .stats .victoires { color: #00b894; }
+        .classement-item .stats .defaites { color: #ff6b6b; }
+        .classement-item .stats .winrate { color: #4a6cf7; font-weight: 700; }
 
         .classement-vide {
             color: #636e72;
@@ -1114,16 +1043,40 @@
             font-style: italic;
         }
 
+        /* ===== BOUTON VOIR PLUS ===== */
+        .btn-voir-plus {
+            display: block;
+            width: 100%;
+            padding: 10px 16px;
+            margin-top: 10px;
+            border: 2px dashed #4a6cf7;
+            border-radius: 10px;
+            background: transparent;
+            color: #4a6cf7;
+            font-family: inherit;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+        }
+
+        .btn-voir-plus:hover {
+            background: #f0f4ff;
+            border-style: solid;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(74, 108, 247, 0.15);
+        }
+
+        .btn-voir-plus:active { transform: translateY(0); }
+
         /* ========================================
            OVERLAY DU DUEL
            ======================================== */
-
         .duel-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.85);
             backdrop-filter: blur(12px);
             z-index: 10000;
@@ -1134,13 +1087,8 @@
         }
 
         @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         .duel-container {
@@ -1157,15 +1105,8 @@
         }
 
         @keyframes slideUp {
-            from {
-                transform: translateY(30px);
-                opacity: 0;
-            }
-
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
+            from { transform: translateY(30px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
         }
 
         .duel-header-overlay {
@@ -1184,10 +1125,7 @@
             border: none;
         }
 
-        .duel-close:hover {
-            color: #ff6b6b;
-            transform: rotate(90deg);
-        }
+        .duel-close:hover { color: #ff6b6b; transform: rotate(90deg); }
 
         .duel-scores {
             display: flex;
@@ -1200,10 +1138,7 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        .duel-joueur {
-            text-align: center;
-            flex: 1;
-        }
+        .duel-joueur { text-align: center; flex: 1; }
 
         .duel-joueur .duel-nom {
             display: block;
@@ -1225,9 +1160,7 @@
             color: #00b894;
         }
 
-        .duel-joueur .duel-reponses.incorrect {
-            color: #ff6b6b;
-        }
+        .duel-joueur .duel-reponses.incorrect { color: #ff6b6b; }
 
         .duel-vs {
             font-size: 28px;
@@ -1324,10 +1257,7 @@
             border: 1px solid rgba(255, 255, 255, 0.06);
         }
 
-        .duel-gagnant {
-            font-size: 48px;
-            margin-bottom: 10px;
-        }
+        .duel-gagnant { font-size: 48px; margin-bottom: 10px; }
 
         .duel-stats p {
             color: rgba(255, 255, 255, 0.8);
@@ -1335,15 +1265,9 @@
             margin: 4px 0;
         }
 
-        .duel-stats p .highlight {
-            color: #fdcb6e;
-            font-weight: 700;
-        }
+        .duel-stats p .highlight { color: #fdcb6e; font-weight: 700; }
 
-        .duel-resultat .btn-action {
-            margin-top: 14px;
-            width: 100%;
-        }
+        .duel-resultat .btn-action { margin-top: 14px; width: 100%; }
 
         /* ===== FOOTER ===== */
         footer {
@@ -1366,19 +1290,14 @@
             margin-top: 4px;
         }
 
-        footer span {
-            color: #4a6cf7;
-            font-weight: 600;
-        }
+        footer span { color: #4a6cf7; font-weight: 600; }
 
         /* ===== MODAL ===== */
         .modal {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.6);
             backdrop-filter: blur(8px);
             z-index: 1000;
@@ -1428,10 +1347,7 @@
             background: rgba(255, 255, 255, 0.08);
         }
 
-        .modal-actions {
-            display: flex;
-            gap: 14px;
-        }
+        .modal-actions { display: flex; gap: 14px; }
 
         .btn-modal {
             flex: 1;
@@ -1460,17 +1376,13 @@
             color: rgba(255, 255, 255, 0.8);
         }
 
-        .btn-modal.cancel:hover {
-            background: rgba(255, 255, 255, 0.15);
-        }
+        .btn-modal.cancel:hover { background: rgba(255, 255, 255, 0.15); }
 
         /* ===== WELCOME ===== */
         .welcome-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background: linear-gradient(145deg, #1a1a2e, #16213e, #0f3460);
             display: flex;
             align-items: center;
@@ -1498,10 +1410,7 @@
             text-transform: uppercase;
         }
 
-        .welcome-logo h1 span {
-            font-weight: 700;
-            color: #6c5ce7;
-        }
+        .welcome-logo h1 span { font-weight: 700; color: #6c5ce7; }
 
         .welcome-subtitle {
             color: rgba(255, 255, 255, 0.6);
@@ -1509,9 +1418,7 @@
             margin-top: 4px;
         }
 
-        .welcome-content {
-            margin-top: 28px;
-        }
+        .welcome-content { margin-top: 28px; }
 
         .welcome-content h2 {
             color: #ffffff;
@@ -1591,16 +1498,11 @@
             gap: 8px;
         }
 
-        /* ========================================
-           NOUVEL ÉCRAN DE TRANSITION
-           ======================================== */
-
+        /* ===== TRANSITION ===== */
         .transition-overlay {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background: linear-gradient(145deg, #1a1a2e, #16213e, #0f3460);
             display: flex;
             align-items: center;
@@ -1655,202 +1557,57 @@
 
         /* ===== RESPONSIVE ===== */
         @media screen and (max-width: 480px) {
-            body {
-                padding: 10px 12px 8px 12px;
-                gap: 10px;
-            }
-
-            main {
-                padding: 14px 16px 12px 16px;
-                gap: 8px;
-                border-radius: 16px;
-            }
-
-            header h1 {
-                font-size: 22px;
-            }
-
-            header h2 {
-                font-size: 12px;
-            }
-
-            .duel-container {
-                padding: 20px 18px 16px 18px;
-            }
-
-            .duel-scores {
-                padding: 8px 10px;
-                gap: 4px;
-            }
-
-            .duel-joueur .duel-score {
-                font-size: 26px;
-            }
-
-            .duel-vs {
-                font-size: 20px;
-                padding: 0 8px;
-            }
-
-            .duel-text {
-                font-size: 15px;
-            }
-
-            .duel-timer {
-                font-size: 32px;
-            }
-
-            .duel-reponses-container {
-                grid-template-columns: 1fr 1fr;
-                gap: 6px;
-            }
-
-            .duel-reponses-container button {
-                font-size: 13px;
-                padding: 10px 12px;
-            }
-
-            .classement-item {
-                flex-wrap: wrap;
-                gap: 4px;
-            }
-
-            .classement-item .stats {
-                font-size: 10px;
-                gap: 6px;
-            }
-
-            .duel-item {
-                flex-wrap: wrap;
-                gap: 4px;
-            }
-
-            .duel-item .duel-infos {
-                font-size: 10px;
-            }
-
-            .classement-tabs {
-                gap: 4px;
-            }
-
-            .classement-tab {
-                font-size: 10px;
-                padding: 3px 10px;
-            }
+            body { padding: 10px 12px 8px 12px; gap: 10px; }
+            main { padding: 14px 16px 12px 16px; gap: 8px; border-radius: 16px; }
+            header h1 { font-size: 22px; }
+            header h2 { font-size: 12px; }
+            .duel-container { padding: 20px 18px 16px 18px; }
+            .duel-scores { padding: 8px 10px; gap: 4px; }
+            .duel-joueur .duel-score { font-size: 26px; }
+            .duel-vs { font-size: 20px; padding: 0 8px; }
+            .duel-text { font-size: 15px; }
+            .duel-timer { font-size: 32px; }
+            .duel-reponses-container { grid-template-columns: 1fr 1fr; gap: 6px; }
+            .duel-reponses-container button { font-size: 13px; padding: 10px 12px; }
+            .classement-item { flex-wrap: wrap; gap: 4px; }
+            .classement-item .stats { font-size: 10px; gap: 6px; }
+            .duel-item { flex-wrap: wrap; gap: 4px; }
+            .duel-item .duel-infos { font-size: 10px; }
+            .classement-tabs { gap: 4px; }
+            .classement-tab { font-size: 10px; padding: 3px 10px; }
         }
 
         @media screen and (max-height: 700px) {
-            body {
-                padding: 6px 12px 4px 12px;
-                gap: 6px;
-            }
-
-            main {
-                padding: 10px 14px 8px 14px;
-                gap: 6px;
-                border-radius: 14px;
-            }
-
-            header h1 {
-                font-size: 18px;
-            }
-
-            header h2 {
-                font-size: 11px;
-            }
-
-            .duel-container {
-                padding: 16px 18px 14px 18px;
-            }
-
-            .duel-scores {
-                margin-bottom: 10px;
-                padding: 8px 12px;
-            }
-
-            .duel-joueur .duel-score {
-                font-size: 24px;
-            }
-
-            .duel-vs {
-                font-size: 18px;
-            }
-
-            .duel-question {
-                padding: 12px;
-                margin: 6px 0;
-            }
-
-            .duel-timer {
-                font-size: 28px;
-            }
-
-            .duel-text {
-                font-size: 15px;
-            }
-
-            .duel-reponses-container {
-                gap: 6px;
-                margin: 6px 0;
-            }
-
-            .duel-reponses-container button {
-                font-size: 12px;
-                padding: 8px 12px;
-                min-height: 36px;
-            }
-
-            .duel-resultat {
-                padding: 10px;
-                margin-top: 6px;
-            }
-
-            .duel-gagnant {
-                font-size: 36px;
-            }
-
-            .zoneDuel {
-                padding: 8px 12px;
-            }
-
-            .duel-liste {
-                max-height: 120px;
-            }
-
-            .classement-liste {
-                max-height: 140px;
-            }
+            body { padding: 6px 12px 4px 12px; gap: 6px; }
+            main { padding: 10px 14px 8px 14px; gap: 6px; border-radius: 14px; }
+            header h1 { font-size: 18px; }
+            header h2 { font-size: 11px; }
+            .duel-container { padding: 16px 18px 14px 18px; }
+            .duel-scores { margin-bottom: 10px; padding: 8px 12px; }
+            .duel-joueur .duel-score { font-size: 24px; }
+            .duel-vs { font-size: 18px; }
+            .duel-question { padding: 12px; margin: 6px 0; }
+            .duel-timer { font-size: 28px; }
+            .duel-text { font-size: 15px; }
+            .duel-reponses-container { gap: 6px; margin: 6px 0; }
+            .duel-reponses-container button { font-size: 12px; padding: 8px 12px; min-height: 36px; }
+            .duel-resultat { padding: 10px; margin-top: 6px; }
+            .duel-gagnant { font-size: 36px; }
+            .zoneDuel { padding: 8px 12px; }
+            .duel-liste { max-height: 120px; }
+            .classement-liste { max-height: 140px; }
         }
 
-        /* ========================================
-           SCROLLBAR STYLING
-           ======================================== */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #e8ecf1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #4a6cf7; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6c5ce7; }
 
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: #e8ecf1;
-            border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: #4a6cf7;
-            border-radius: 10px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6c5ce7;
-        }
-
-        /* ===== OVERLAY D'INVITATION (remplace confirm) ===== */
+        /* ===== OVERLAY D'INVITATION ===== */
         .invite-modal {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
             background: rgba(0, 0, 0, 0.8);
             backdrop-filter: blur(12px);
             z-index: 10001;
@@ -1860,9 +1617,7 @@
             animation: fadeIn 0.3s ease;
         }
 
-        .invite-modal.active {
-            display: flex;
-        }
+        .invite-modal.active { display: flex; }
 
         .invite-card {
             background: linear-gradient(145deg, #1a1a2e, #16213e);
@@ -1876,10 +1631,7 @@
             animation: slideUp 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
         }
 
-        .invite-card .invite-icon {
-            font-size: 56px;
-            margin-bottom: 10px;
-        }
+        .invite-card .invite-icon { font-size: 56px; margin-bottom: 10px; }
 
         .invite-card h2 {
             color: #ffffff;
@@ -1900,10 +1652,7 @@
             margin-bottom: 24px;
         }
 
-        .invite-actions {
-            display: flex;
-            gap: 16px;
-        }
+        .invite-actions { display: flex; gap: 16px; }
 
         .invite-actions button {
             flex: 1;
@@ -1950,7 +1699,6 @@
             });
         }
     </script>
-
 </head>
 
 <body>
@@ -1987,7 +1735,7 @@
         </div>
     </div>
 
-    <!-- ===== ÉCRAN DE TRANSITION ===== -->
+    <!-- ===== ÉCRAN DE TRANSITION (conservé mais non utilisé) ===== -->
     <div class="transition-overlay" id="transitionOverlay" style="display:none;">
         <div class="transition-box">
             <div class="transition-content">
@@ -2003,176 +1751,204 @@
         <h2>🌍 Quiz Culture Générale</h2>
     </header>
 
-    <main id="mainGame" style="display:none;">
-        <!-- ===== PROFIL ===== -->
-        <div class="zoneProfil" id="zoneProfil">
-            <div class="profil-avatar" id="profilAvatar">👤</div>
-            <div class="profil-info">
-                <div class="profil-nom" id="profilNom">Joueur</div>
-                <div class="profil-stats">Niveau <span id="profilNiveau">1</span> · ⭐ <span id="profilScore">0</span>
-                    pts</div>
+    <!-- ===== BARRE D'ONGLETS SOLO / DUEL ===== -->
+    <div class="tabs-container" id="tabsContainer" style="display:none;">
+        <button class="tab-btn active" id="tabSolo">🎮 Solo</button>
+        <button class="tab-btn" id="tabDuel">⚔️ Duel</button>
+    </div>
+
+    <!-- ============================================
+         CONTENU SOLO
+         ============================================ -->
+    <div id="soloContent" class="tab-content active" style="display:none;">
+
+        <!-- Écran de sélection du mode -->
+        <div class="zoneSelectionMode" id="zoneSelectionMode">
+            <h2>🎯 Choisissez votre mode</h2>
+            <div class="zoneMode">
+                <button class="btn-mode active" id="btnModeMonde">🌍 Monde</button>
+                <button class="btn-mode" id="btnModeAfrique">🌍 Afrique</button>
             </div>
-            <button class="profil-btn" id="btnProfil">✏️</button>
+            <button class="btn-action" id="btnLancerPartie">🚀 Commencer la partie</button>
         </div>
 
-        <!-- ===== MODAL PSEUDO ===== -->
-        <div class="modal" id="modalPseudo">
-            <div class="modal-content">
-                <h2>👤 Changer de pseudo</h2>
-                <p>Entrez votre nouveau pseudo :</p>
-                <input type="text" id="inputPseudo" placeholder="Votre pseudo..." maxlength="20">
-                <div class="modal-actions">
-                    <button class="btn-modal" id="btnPseudoOk">✅ Valider</button>
-                    <button class="btn-modal cancel" id="btnPseudoCancel">❌ Annuler</button>
+        <!-- Jeu principal (caché au départ) -->
+        <main id="mainGame" style="display:none;">
+            <!-- PROFIL -->
+            <div class="zoneProfil" id="zoneProfil">
+                <div class="profil-avatar" id="profilAvatar">👤</div>
+                <div class="profil-info">
+                    <div class="profil-nom" id="profilNom">Joueur</div>
+                    <div class="profil-stats">Niveau <span id="profilNiveau">1</span> · ⭐ <span id="profilScore">0</span> pts</div>
+                </div>
+                <button class="profil-btn" id="btnProfil">✏️</button>
+            </div>
+
+            <!-- ✅ BOUTON RETOUR AU CHOIX DU MODE -->
+            <button class="btn-retour-mode" id="btnRetourMode">
+                ↩️ Changer de mode (Monde / Afrique)
+            </button>
+
+            <!-- MODAL PSEUDO -->
+            <div class="modal" id="modalPseudo">
+                <div class="modal-content">
+                    <h2>👤 Changer de pseudo</h2>
+                    <p>Entrez votre nouveau pseudo :</p>
+                    <input type="text" id="inputPseudo" placeholder="Votre pseudo..." maxlength="20">
+                    <div class="modal-actions">
+                        <button class="btn-modal" id="btnPseudoOk">✅ Valider</button>
+                        <button class="btn-modal cancel" id="btnPseudoCancel">❌ Annuler</button>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <hr class="separator">
+            <hr class="separator">
 
-        <!-- ===== MODES ===== -->
-        <div class="zoneMode">
-            <button class="btn-mode active" id="btnModeMonde">🌍 Monde</button>
-            <button class="btn-mode" id="btnModeAfrique">🌍 Afrique</button>
-        </div>
-
-        <hr class="separator">
-
-        <!-- ===== RANG ===== -->
-        <div class="zoneRang" id="zoneRang">
-            <span class="rang-badge" id="rangBadge">🥉</span>
-            <div class="rang-info">
-                <div class="rang-nom" id="rangNom">Bronze</div>
-                <div class="rang-progress">
-                    <div class="rang-bar" id="rangBar"></div>
-                    <span id="rangPoints">0 / 100</span>
+            <!-- RANG -->
+            <div class="zoneRang" id="zoneRang">
+                <span class="rang-badge" id="rangBadge">🥉</span>
+                <div class="rang-info">
+                    <div class="rang-nom" id="rangNom">Bronze</div>
+                    <div class="rang-progress">
+                        <div class="rang-bar" id="rangBar"></div>
+                        <span id="rangPoints">0 / 100</span>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <hr class="separator">
+            <hr class="separator">
 
-        <!-- ===== NIVEAU + CATÉGORIE + SCORE ===== -->
-        <div class="zoneInfo">
-            <div class="zoneNiveau">
-                <span class="niveau-label">Niveau</span>
-                <span class="niveau-numero" id="niveauActuel">1</span>
-                <span class="niveau-separateur">|</span>
-                <span class="niveau-categorie" id="categorieActuelle">📚</span>
-                <span class="niveau-difficulte" id="difficulteActuelle">🟢</span>
-            </div>
-            <div class="zoneScoreTotal">
-                🏆 <span id="scoreTotal">0</span>
-            </div>
-        </div>
-
-        <!-- ===== PROGRESSION ===== -->
-        <div class="zoneProgress">
-            <span class="progress-text" id="questionProgress">1 / 10</span>
-            <div class="progress-bar">
-                <div class="progress-bar-fill" id="progressFill"></div>
-            </div>
-        </div>
-
-        <hr class="separator">
-
-        <!-- ===== QUESTION ===== -->
-        <div class="zoneQuestion">
-            <div class="question-text" id="questionText">Cliquez sur "Commencer"</div>
-        </div>
-
-        <div class="spacer-sm"></div>
-
-        <!-- ===== TIMER ===== -->
-        <div class="zoneTimer" id="zoneTimer" style="display:none;">
-            <span class="timer-icon">⏱️</span>
-            <span class="timer-value" id="timerValue">15</span>
-            <span class="timer-label">s</span>
-            <span class="timer-bonus" id="timerBonus">⚡ x2</span>
-        </div>
-
-        <div class="spacer-sm"></div>
-
-        <!-- ===== RÉPONSES ===== -->
-        <div class="zoneReponses" id="zoneReponses"></div>
-
-        <div class="spacer-sm"></div>
-
-        <!-- ===== ACTIONS ===== -->
-        <div class="zoneActions">
-            <button id="btnIndice" class="btn-indice" style="display:none;">💡 Indice</button>
-            <button id="btnAction" class="btn-action">🚀 Commencer</button>
-        </div>
-
-        <div class="spacer-sm"></div>
-
-        <!-- ===== STATS ===== -->
-        <div class="zoneStats">
-            <span id="statsCorrect">✅ 0</span>
-            <span id="statsIncorrect">❌ 0</span>
-        </div>
-
-        <hr class="separator">
-
-        <!-- ===== DÉFI DU JOUR ===== -->
-        <div class="zoneDaily" id="zoneDaily">
-            <div class="daily-header">
-                <span class="daily-icon">🏆</span>
-                <span class="daily-title">Défi du <span id="dailyDate"></span></span>
-            </div>
-            <div class="daily-info">
-                <span>📝 10 questions</span>
-                <span>⭐ +50 pts</span>
-                <span id="dailyPlayers"></span>
-            </div>
-            <button class="daily-btn" id="btnDaily">🎯 0/10</button>
-        </div>
-
-        <hr class="separator">
-
-        <!-- ===== DUEL EN LIGNE ===== -->
-        <div class="zoneDuel" id="zoneDuel">
-            <div class="duel-header">
-                <span class="duel-icon">⚔️</span>
-                <span class="duel-title">Joueurs en ligne</span>
-                <button class="duel-btn" id="btnDuel">🔄 Actualiser</button>
-            </div>
-
-            <div class="duel-liste" id="duelListe">
-                <div class="duel-vide">🔍 Recherche de joueurs...</div>
-            </div>
-
-            <!-- Fenêtre d'invitation -->
-            <div class="duel-invitation" id="duelInvitation" style="display:none;">
-                <p>⏳ Invitation envoyée à <strong id="invitationNom">...</strong></p>
-                <div class="duel-attente">En attente de réponse...</div>
-                <button class="btn-annuler" id="btnAnnulerDuel">❌ Annuler</button>
-            </div>
-
-            <!-- Statut du duel -->
-            <div class="duel-statut" id="duelStatut" style="display:none;">
-                <span class="duel-statut-icone">⚔️</span>
-                <span class="duel-statut-texte" id="duelStatutTexte">En duel avec <strong>...</strong></span>
-            </div>
-        </div>
-
-        <hr class="separator">
-
-        <!-- ===== CLASSEMENTS ===== -->
-        <div class="zoneClassement" id="zoneClassement">
-            <div class="classement-header">
-                <span class="classement-icon">🏅</span>
-                <span class="classement-title">Classements</span>
-                <div class="classement-tabs">
-                    <button class="classement-tab active" data-tab="duel">⚔️ Duels</button>
-                    <button class="classement-tab" data-tab="personnel">⭐ Personnel</button>
+            <!-- NIVEAU + CATÉGORIE + SCORE -->
+            <div class="zoneInfo">
+                <div class="zoneNiveau">
+                    <span class="niveau-label">Niveau</span>
+                    <span class="niveau-numero" id="niveauActuel">1</span>
+                    <span class="niveau-separateur">|</span>
+                    <span class="niveau-categorie" id="categorieActuelle">📚</span>
+                    <span class="niveau-difficulte" id="difficulteActuelle">🟢</span>
+                </div>
+                <div class="zoneScoreTotal">
+                    🏆 <span id="scoreTotal">0</span>
                 </div>
             </div>
-            <div class="classement-liste" id="classementListe">
-                <div class="classement-vide">📊 Chargement des classements...</div>
+
+            <!-- PROGRESSION -->
+            <div class="zoneProgress">
+                <span class="progress-text" id="questionProgress">1 / 10</span>
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="progressFill"></div>
+                </div>
             </div>
-        </div>
-    </main>
+
+            <hr class="separator">
+
+            <!-- QUESTION -->
+            <div class="zoneQuestion">
+                <div class="question-text" id="questionText">Cliquez sur "Commencer"</div>
+            </div>
+
+            <div class="spacer-sm"></div>
+
+            <!-- TIMER -->
+            <div class="zoneTimer" id="zoneTimer" style="display:none;">
+                <span class="timer-icon">⏱️</span>
+                <span class="timer-value" id="timerValue">15</span>
+                <span class="timer-label">s</span>
+                <span class="timer-bonus" id="timerBonus">⚡ x2</span>
+            </div>
+
+            <div class="spacer-sm"></div>
+
+            <!-- RÉPONSES -->
+            <div class="zoneReponses" id="zoneReponses"></div>
+
+            <div class="spacer-sm"></div>
+
+            <!-- ACTIONS -->
+            <div class="zoneActions">
+                <button id="btnIndice" class="btn-indice" style="display:none;">💡 Indice</button>
+                <button id="btnAction" class="btn-action">🚀 Commencer</button>
+            </div>
+
+            <div class="spacer-sm"></div>
+
+            <!-- STATS -->
+            <div class="zoneStats">
+                <span id="statsCorrect">✅ 0</span>
+                <span id="statsIncorrect">❌ 0</span>
+            </div>
+
+            <hr class="separator">
+
+            <!-- DÉFI DU JOUR -->
+            <div class="zoneDaily" id="zoneDaily">
+                <div class="daily-header">
+                    <span class="daily-icon">🏆</span>
+                    <span class="daily-title">Défi du <span id="dailyDate"></span></span>
+                </div>
+                <div class="daily-info">
+                    <span>📝 10 questions</span>
+                    <span>⭐ +50 pts</span>
+                    <span id="dailyPlayers"></span>
+                </div>
+                <button class="daily-btn" id="btnDaily">🎯 0/10</button>
+            </div>
+        </main>
+    </div>
+
+    <!-- ============================================
+         CONTENU DUEL
+         ============================================ -->
+    <div id="duelContent" class="tab-content" style="display:none;">
+        <main>
+            <!-- DUEL EN LIGNE -->
+            <div class="zoneDuel" id="zoneDuel">
+                <div class="duel-header">
+                    <span class="duel-icon">⚔️</span>
+                    <span class="duel-title">Joueurs en ligne</span>
+                    <button class="duel-btn" id="btnDuel">🔄 Actualiser</button>
+                </div>
+
+                <div class="duel-liste" id="duelListe">
+                    <div class="duel-vide">🔍 Recherche de joueurs...</div>
+                </div>
+
+                <div class="duel-invitation" id="duelInvitation" style="display:none;">
+                    <p>⏳ Invitation envoyée à <strong id="invitationNom">...</strong></p>
+                    <div class="duel-attente">En attente de réponse...</div>
+                    <button class="btn-annuler" id="btnAnnulerDuel">❌ Annuler</button>
+                </div>
+
+                <div class="duel-statut" id="duelStatut" style="display:none;">
+                    <span class="duel-statut-icone">⚔️</span>
+                    <span class="duel-statut-texte" id="duelStatutTexte">En duel avec <strong>...</strong></span>
+                </div>
+            </div>
+
+            <hr class="separator">
+
+            <!-- CLASSEMENTS -->
+            <div class="zoneClassement" id="zoneClassement">
+                <div class="classement-header">
+                    <span class="classement-icon">🏅</span>
+                    <span class="classement-title">Classements</span>
+                    <div class="classement-tabs">
+                        <button class="classement-tab active" data-tab="duel">⚔️ Duels</button>
+                        <button class="classement-tab" data-tab="personnel">⭐ Personnel</button>
+                    </div>
+                </div>
+
+                <div class="classement-liste" id="classementListe">
+                    <div class="classement-vide">📊 Chargement des classements...</div>
+                </div>
+
+                <!-- BOUTON VOIR PLUS -->
+                <button class="btn-voir-plus" id="btnVoirPlus" style="display:none;">
+                    👇 Voir plus de joueurs
+                </button>
+            </div>
+        </main>
+    </div>
 
     <div class="spacer"></div>
 
@@ -2183,12 +1959,10 @@
     <!-- ===== OVERLAY DU DUEL ===== -->
     <div class="duel-overlay" id="duelOverlay" style="display:none;">
         <div class="duel-container">
-            <!-- En-tête -->
             <div class="duel-header-overlay">
                 <button class="duel-close" id="btnFermerDuel">✕</button>
             </div>
 
-            <!-- Scores -->
             <div class="duel-scores">
                 <div class="duel-joueur" id="duelJoueur1">
                     <span class="duel-nom" id="duelNom1">Joueur 1</span>
@@ -2203,17 +1977,14 @@
                 </div>
             </div>
 
-            <!-- Question -->
             <div class="duel-question" id="duelQuestion">
                 <div class="duel-timer" id="duelTimer">15</div>
                 <div class="duel-question-numero" id="duelQuestionNumero">Question 1/5</div>
                 <div class="duel-text" id="duelQuestionText">⏳ Chargement du duel...</div>
             </div>
 
-            <!-- Réponses -->
             <div class="duel-reponses-container" id="duelReponses"></div>
 
-            <!-- Résultat -->
             <div class="duel-resultat" id="duelResultat" style="display:none;">
                 <div class="duel-gagnant" id="duelGagnant">🏆</div>
                 <div class="duel-stats">
@@ -2225,7 +1996,7 @@
         </div>
     </div>
 
-    <!-- ===== OVERLAY D'INVITATION (personnalisé) ===== -->
+    <!-- ===== OVERLAY D'INVITATION ===== -->
     <div class="invite-modal" id="inviteModal">
         <div class="invite-card">
             <div class="invite-icon">⚔️</div>
@@ -2239,12 +2010,14 @@
         </div>
     </div>
 
-
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script src="script.js"></script>
     <script src="main.js"></script>
 
     <script>
+        // ============================================================
+        // INSTALLATION PWA
+        // ============================================================
         let deferredPrompt;
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
@@ -2269,7 +2042,6 @@
             document.getElementById('installBanner').style.display = 'none';
         });
 
-
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function (registrations) {
                 for (let registration of registrations) {
@@ -2277,7 +2049,6 @@
                 }
             });
         }
-
     </script>
 </body>
 

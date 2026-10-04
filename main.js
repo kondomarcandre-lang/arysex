@@ -193,6 +193,10 @@
     let duelScoreLocal = 0;
     let duelBonnesLocal = 0;
 
+    // ⚡ CLASSEMENT (limité à 3 + Voir plus)
+    let classementComplet = [];
+    let classementAffiche = 3;
+
     // ========================================
     // SAUVEGARDE MODE
     // ========================================
@@ -744,14 +748,14 @@
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
-            demarrerNiveau();
+            // ✅ NE PAS démarrer le niveau ici !
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
         if (btnModeAfrique) btnModeAfrique.addEventListener('click', (e) => { e.preventDefault(); changerMode('afrique'); });
 
         // ========================================
-        // LANCER JEU
+        // LANCER JEU (après saisie du pseudo)
         // ========================================
         function lancerLeJeu() {
             let pseudo = welcomePseudo.value.trim();
@@ -763,8 +767,13 @@
 
             welcomeOverlay.style.display = 'none';
             welcomeOverlay.style.visibility = 'hidden';
-            mainGame.style.display = 'block';
-            mainGame.style.visibility = 'visible';
+
+            // ✅ Afficher l'interface principale (onglets + écran de sélection)
+            document.getElementById('tabsContainer').style.display = 'flex';
+            document.getElementById('soloContent').style.display = 'block';
+            document.getElementById('duelContent').style.display = 'none';
+            document.getElementById('zoneSelectionMode').style.display = 'flex';
+            mainGame.style.display = 'none';
             mainFooter.style.display = 'flex';
             mainFooter.style.visibility = 'visible';
 
@@ -788,24 +797,99 @@
                 e.preventDefault();
                 e.stopPropagation();
                 lancerLeJeu();
-                document.getElementById('transitionOverlay').style.display = 'flex';
                 return false;
             };
         }
 
         // ========================================
-        // TRANSITION
+        // BOUTON COMMENCER LA PARTIE (solo)
         // ========================================
-        const transitionOverlay = document.getElementById('transitionOverlay');
-        const transitionBtn = document.getElementById('transitionBtn');
-
-        if (transitionBtn) {
-            transitionBtn.onclick = function (e) {
+        const btnLancerPartie = document.getElementById('btnLancerPartie');
+        if (btnLancerPartie) {
+            btnLancerPartie.onclick = function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-                transitionOverlay.style.display = 'none';
+                document.getElementById('zoneSelectionMode').style.display = 'none';
+                mainGame.style.display = 'flex';
+                mainGame.style.visibility = 'visible';
+
+                // ✅ Mettre à jour le texte du bouton retour
+                const btnRetourUpdate = document.getElementById('btnRetourMode');
+                if (btnRetourUpdate) {
+                    const emoji = modeActuel === 'afrique' ? '🌍' : '🌎';
+                    const nom = modeActuel === 'afrique' ? 'Afrique' : 'Monde';
+                    btnRetourUpdate.textContent = `↩️ Changer de mode (actuel : ${emoji} ${nom})`;
+                }
+
                 demarrerNiveau();
             };
+        }
+
+        // ========================================
+        // ✅ BOUTON RETOUR AU CHOIX DU MODE
+        // ========================================
+        const btnRetourMode = document.getElementById('btnRetourMode');
+        if (btnRetourMode) {
+            btnRetourMode.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                console.log('🔙 Bouton retour cliqué !');
+
+                // Arrêter le jeu en cours
+                arreterTimer();
+                estEnJeu = false;
+                estEnChargement = false;
+
+                // Cacher la zone de jeu
+                const mainGameEl = document.getElementById('mainGame');
+                if (mainGameEl) mainGameEl.style.display = 'none';
+
+                // Réafficher l'écran de sélection
+                const zoneSelectionEl = document.getElementById('zoneSelectionMode');
+                if (zoneSelectionEl) zoneSelectionEl.style.display = 'flex';
+
+                // Mettre à jour l'interface
+                mettreAJourInterface();
+
+                // Notification
+                afficherNotification('🎯 Choisissez un nouveau mode', 'success');
+            });
+        }
+
+        // ========================================
+        // GESTION DES ONGLETS SOLO / DUEL
+        // ========================================
+        const tabSolo = document.getElementById('tabSolo');
+        const tabDuel = document.getElementById('tabDuel');
+        const soloContent = document.getElementById('soloContent');
+        const duelContent = document.getElementById('duelContent');
+
+        if (tabSolo) {
+            tabSolo.addEventListener('click', () => {
+                tabSolo.classList.add('active');
+                tabDuel.classList.remove('active');
+                soloContent.classList.add('active');
+                soloContent.style.display = 'block';
+                duelContent.classList.remove('active');
+                duelContent.style.display = 'none';
+            });
+        }
+
+        if (tabDuel) {
+            tabDuel.addEventListener('click', () => {
+                tabDuel.classList.add('active');
+                tabSolo.classList.remove('active');
+                duelContent.classList.add('active');
+                duelContent.style.display = 'block';
+                soloContent.classList.remove('active');
+                soloContent.style.display = 'none';
+                // Demander les classements et joueurs
+                if (socket) {
+                    socket.emit('demander_joueurs');
+                    socket.emit('demander_classements');
+                }
+            });
         }
 
         // ========================================
@@ -936,7 +1020,6 @@
                 afficherNotification(`❌ ${data.message}`, 'error');
             });
 
-            // ===== INVITATION REÇUE =====
             socket.on('invitation_duel', (data) => {
                 inviteNom.textContent = data.inviteurPseudo;
                 inviteModal.classList.add('active');
@@ -945,7 +1028,6 @@
                 Haptic.medium();
             });
 
-            // ===== DÉBUT DU DUEL =====
             socket.on('demarrer_duel', (data) => {
                 SoundManager.duelStart();
                 estEnDuel = true;
@@ -974,7 +1056,6 @@
                 setTimeout(() => afficherQuestionDuel(0), 1200);
             });
 
-            // ===== SCORE ADVERSE =====
             socket.on('adversaire_repondu', (data) => {
                 duelScore2.textContent = data.adversaireScore || 0;
                 duelReponses2.textContent = `✅ ${data.adversaireBonnes || 0}`;
@@ -984,7 +1065,6 @@
                 duelQuestionNumero.textContent = '🎯 L\'adversaire a terminé. En attente...';
             });
 
-            // ===== FIN DU DUEL =====
             socket.on('fin_duel', (data) => {
                 terminerDuelAffichage(data);
             });
@@ -1250,29 +1330,39 @@
         }
 
         // ========================================
-        // CLASSEMENTS
+        // CLASSEMENTS (limité à 3 + Voir plus)
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
 
             if (!classements || classements.length === 0) {
                 classementListe.innerHTML = '<div class="classement-vide">📊 Aucun classement disponible</div>';
+                const btnVoirPlusVide = document.getElementById('btnVoirPlus');
+                if (btnVoirPlusVide) btnVoirPlusVide.style.display = 'none';
                 return;
             }
 
             let affichage = classements;
             if (tabClassementActif === 'personnel') {
                 affichage = [...classements].sort((a, b) => (b.soloScore || 0) - (a.soloScore || 0));
+            } else {
+                affichage = [...classements].sort((a, b) => (b.victoires || 0) - (a.victoires || 0));
             }
 
-            const top3 = affichage.slice(0, 3);
-            const reste = affichage.slice(3);
+            classementComplet = affichage;
+            const aAfficher = affichage.slice(0, classementAffiche);
 
             let html = '';
 
-            top3.forEach((j, index) => {
-                const rankClass = ['gold', 'silver', 'bronze'][index];
-                const medal = ['🥇', '🥈', '🥉'][index];
+            aAfficher.forEach((j, index) => {
+                const rank = index + 1;
+                let rankClass = '';
+                let medal = `#${rank}`;
+
+                if (rank === 1) { rankClass = 'gold'; medal = '🥇'; }
+                else if (rank === 2) { rankClass = 'silver'; medal = '🥈'; }
+                else if (rank === 3) { rankClass = 'bronze'; medal = '🥉'; }
+
                 html += `
                     <div class="classement-item">
                         <span class="rank ${rankClass}">${medal}</span>
@@ -1290,25 +1380,28 @@
                 `;
             });
 
-            reste.forEach((j, index) => {
-                html += `
-                    <div class="classement-item">
-                        <span class="rank">${index + 4}</span>
-                        <span class="nom">${j.pseudo} ${j.enLigne ? '<span class="online">●</span>' : ''}</span>
-                        <div class="stats">
-                            ${tabClassementActif === 'duel' ? `
-                                <span class="victoires">🏆 ${j.victoires || 0}</span>
-                                <span class="defaites">💔 ${j.defaites || 0}</span>
-                                <span class="winrate">📊 ${j.winRate || 0}%</span>
-                            ` : `
-                                <span>⭐ ${j.soloScore || 0}</span>
-                            `}
-                        </div>
-                    </div>
-                `;
-            });
-
             classementListe.innerHTML = html;
+
+            const btnVoirPlus = document.getElementById('btnVoirPlus');
+            if (btnVoirPlus) {
+                if (affichage.length > classementAffiche) {
+                    btnVoirPlus.style.display = 'block';
+                    btnVoirPlus.textContent = `👇 Voir plus de joueurs (${affichage.length - classementAffiche} restants)`;
+                } else {
+                    btnVoirPlus.style.display = 'none';
+                }
+            }
+        }
+
+        // ========================================
+        // BOUTON VOIR PLUS
+        // ========================================
+        const btnVoirPlus = document.getElementById('btnVoirPlus');
+        if (btnVoirPlus) {
+            btnVoirPlus.addEventListener('click', function () {
+                classementAffiche += 5;
+                afficherClassements(classementComplet);
+            });
         }
 
         // ========================================
@@ -1332,11 +1425,15 @@
         if (btnFermerDuel) btnFermerDuel.addEventListener('click', quitterDuel);
         if (btnQuitterDuel) btnQuitterDuel.addEventListener('click', quitterDuel);
 
+        // ========================================
+        // ONGLETS CLASSEMENT (Duels / Personnel)
+        // ========================================
         classementTabs.forEach(tab => {
             tab.addEventListener('click', function () {
                 classementTabs.forEach(t => t.classList.remove('active'));
                 this.classList.add('active');
                 tabClassementActif = this.dataset.tab;
+                classementAffiche = 3;
                 if (socket) socket.emit('demander_classements');
             });
         });
@@ -1362,6 +1459,17 @@
             mainFooter.style.display = 'none';
             if (welcomePseudo) welcomePseudo.focus();
         }
+
+        // Cacher les onglets et contenus au démarrage
+        const tabsContainer = document.getElementById('tabsContainer');
+        const soloContentInit = document.getElementById('soloContent');
+        const duelContentInit = document.getElementById('duelContent');
+        const zoneSelectionModeInit = document.getElementById('zoneSelectionMode');
+
+        if (tabsContainer) tabsContainer.style.display = 'none';
+        if (soloContentInit) soloContentInit.style.display = 'none';
+        if (duelContentInit) duelContentInit.style.display = 'none';
+        if (zoneSelectionModeInit) zoneSelectionModeInit.style.display = 'flex';
 
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
