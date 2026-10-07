@@ -1,11 +1,12 @@
 // ========================================
-// 🔥 SERVEUR - AryseX Quiz Duel (jsonbin.io)
+// 🔥 SERVEUR - AryseX Quiz Duel (jsonbin.io + web-push)
 // ========================================
 
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const webpush = require('web-push'); // ✅ NOUVEAU
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +17,18 @@ const io = socketIo(server, {
 app.use(cors());
 app.use(express.json());
 app.use(express.static('.'));
+
+// ========================================
+// 🔔 CONFIGURATION WEB-PUSH
+// ========================================
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC || 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'Rbw9F5qxXgzCVmIuip6aCheTRPRcp2LJ6YFkoJckz9s';
+const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:contact@arysex.com';
+
+webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
+
+// Stockage des abonnements push
+const abonnementsPush = {};
 
 // ========================================
 // 📦 EN MÉMOIRE
@@ -69,7 +82,112 @@ async function sauvegarderClassements() {
 }
 
 // ========================================
-// 🔌 CONNEXION
+// 📢 FONCTION D'ENVOI DE NOTIFICATION
+// ========================================
+async function envoyerNotification(pseudo, titre, message, url = '/') {
+    const subscription = abonnementsPush[pseudo];
+
+    if (!subscription) {
+        console.warn(`⚠️ Pas d'abonnement pour ${pseudo}`);
+        return { success: false, error: 'Non abonné' };
+    }
+
+    try {
+        await webpush.sendNotification(subscription, JSON.stringify({
+            title: titre || 'AryseX Quiz',
+            body: message || 'Nouveau quiz disponible !',
+            icon: '/icons/icon-192.png',
+            badge: '/icons/icon-96.png',
+            url: url
+        }));
+        console.log(`📬 Notification envoyée à ${pseudo}`);
+        return { success: true };
+    } catch (error) {
+        console.error(`❌ Erreur push pour ${pseudo}:`, error.message);
+
+        // Si l'abonnement n'est plus valide, on le supprime
+        if (error.statusCode === 410 || error.statusCode === 404) {
+            delete abonnementsPush[pseudo];
+            console.log(`🗑️ Abonnement supprimé pour ${pseudo}`);
+        }
+        return { success: false, error: error.message };
+    }
+}
+
+async function envoyerNotificationATous(titre, message, url = '/') {
+    let envoyes = 0;
+    let erreurs = 0;
+
+    for (const [pseudo, subscription] of Object.entries(abonnementsPush)) {
+        try {
+            await webpush.sendNotification(subscription, JSON.stringify({
+                title: titre || 'AryseX Quiz',
+                body: message || 'Nouveau quiz disponible ! 🎯',
+                icon: '/icons/icon-192.png',
+                badge: '/icons/icon-96.png',
+                url: url
+            }));
+            envoyes++;
+        } catch (e) {
+            erreurs++;
+            if (e.statusCode === 410 || e.statusCode === 404) {
+                delete abonnementsPush[pseudo];
+            }
+        }
+    }
+
+    console.log(`📬 Broadcast: ${envoyes} envoyés, ${erreurs} erreurs`);
+    return { envoyes, erreurs, total: Object.keys(abonnementsPush).length };
+}
+
+// ========================================
+// 🌐 ROUTES HTTP
+// ========================================
+
+// Test du serveur
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        abonnes: Object.keys(abonnementsPush).length,
+        joueurs: Object.keys(joueurs).length,
+        classements: Object.keys(classements).length
+    });
+});
+
+// Voir les abonnés
+app.get('/api/abonnes', (req, res) => {
+    res.json({
+        total: Object.keys(abonnementsPush).length,
+        pseudos: Object.keys(abonnementsPush)
+    });
+});
+
+// Envoyer une notification (depuis l'extérieur)
+app.post('/api/notifier', async (req, res) => {
+    const { pseudo, titre, message, url, tous } = req.body;
+
+    // Envoyer à TOUS
+    if (tous) {
+        const result = await envoyerNotificationATous(titre, message, url);
+        return res.json({ success: true, ...result });
+    }
+
+    // Envoyer à UN joueur
+    if (!pseudo) {
+        return res.status(400).json({ error: 'Pseudo manquant' });
+    }
+
+    const result = await envoyerNotification(pseudo, titre, message, url);
+
+    if (result.success) {
+        res.json({ success: true, message: `Notification envoyée à ${pseudo}` });
+    } else {
+        res.status(404).json({ error: result.error });
+    }
+});
+
+// ========================================
+// 🔌 CONNEXION SOCKET
 // ========================================
 io.on('connection', (socket) => {
     console.log(`🔗 Connecté: ${socket.id}`);
@@ -135,7 +253,73 @@ io.on('connection', (socket) => {
         socket.emit('classements', getClassements());
     });
 
-    // ===== INVITATION =====
+    // ========================================
+    // 🔔 ENREGISTRER UN ABONNEMENT PUSH
+    // ========================================
+    socket.on('enregistrer_push', (data) => {
+        const { subscription, pseudo } = data;
+
+        if (!subscription || !pseudo) {
+            console.warn('⚠️ Abonnement push invalide');
+            return;
+        }
+
+        abonnementsPush[pseudo] = subscription;
+        console.log(`📬 Push enregistré pour ${pseudo}`);
+
+        // Confirmer au client
+        socket.emit('push_enregistre', { success: true });
+
+        // ✅ ENVOYER UNE NOTIF DE BIENVENUE
+        setTimeout(() => {
+            envoyerNotification(
+                pseudo,
+                '🎯 Bienvenue sur AryseX Quiz !',
+                'Tu recevras les nouveaux quiz et défis. Bon jeu ! 🚀'
+            );
+        }, 2000);
+    });
+
+    // ========================================
+    // 📢 ENVOYER UNE NOTIFICATION (depuis un client)
+    // ========================================
+    socket.on('envoyer_notification', async (data) => {
+        const { pseudo, titre, message, url } = data;
+
+        if (!pseudo) {
+            socket.emit('erreur', { message: 'Pseudo manquant' });
+            return;
+        }
+
+        const result = await envoyerNotification(pseudo, titre, message, url);
+
+        if (result.success) {
+            socket.emit('notification_envoyee', { success: true });
+        } else {
+            socket.emit('erreur', { message: result.error });
+        }
+    });
+
+    // ========================================
+    // 💬 MESSAGES DE CHAT (optionnel)
+    // ========================================
+    socket.on('envoyer_message', async (data) => {
+        const { destinataire, message } = data;
+        const expediteur = joueurs[socket.id]?.pseudo;
+
+        if (!expediteur || !destinataire || !message) return;
+
+        // Envoyer la notification push
+        await envoyerNotification(
+            destinataire,
+            `💬 ${expediteur}`,
+            message
+        );
+    });
+
+    // ========================================
+    // ===== INVITATION DUEL =====
+    // ========================================
     socket.on('inviter_duel', (data) => {
         const { adversaireId, questions } = data;
         const joueur = joueurs[socket.id];
@@ -166,6 +350,13 @@ io.on('connection', (socket) => {
             inviteurId: socket.id
         });
 
+        // ✅ ENVOYER NOTIFICATION PUSH à l'adversaire
+        envoyerNotification(
+            adversaire.pseudo,
+            `⚔️ ${joueur.pseudo} te défie !`,
+            'Ouvre l\'app pour accepter le duel 🎯'
+        );
+
         console.log(`📨 ${joueur.pseudo} → ${adversaire.pseudo}`);
     });
 
@@ -186,6 +377,13 @@ io.on('connection', (socket) => {
                 io.to(inviteurId).emit('invitation_refusee', {
                     joueur: adversaire?.pseudo || 'Adversaire'
                 });
+
+                // ✅ Notifier l'inviteur que c'est refusé
+                envoyerNotification(
+                    inviteur.pseudo,
+                    '❌ Duel refusé',
+                    `${adversaire?.pseudo || 'L\'adversaire'} a refusé ton invitation.`
+                );
             }
             return;
         }
@@ -310,6 +508,43 @@ io.on('connection', (socket) => {
 
             // 💾 SAUVEGARDE JSONBIN
             await sauvegarderClassements();
+
+            // ✅ NOTIFIER LE RÉSULTAT
+            if (gagnantId === salle.joueur1) {
+                envoyerNotification(
+                    joueur1.pseudo,
+                    '🏆 Victoire !',
+                    `Tu as battu ${joueur2.pseudo} ${score1}-${score2} 🎉`
+                );
+                envoyerNotification(
+                    joueur2.pseudo,
+                    '💔 Défaite',
+                    `${joueur1.pseudo} t'a battu ${score2}-${score1}. Revanche ?`
+                );
+            } else if (gagnantId === salle.joueur2) {
+                envoyerNotification(
+                    joueur2.pseudo,
+                    '🏆 Victoire !',
+                    `Tu as battu ${joueur1.pseudo} ${score2}-${score1} 🎉`
+                );
+                envoyerNotification(
+                    joueur1.pseudo,
+                    '💔 Défaite',
+                    `${joueur2.pseudo} t'a battu ${score1}-${score2}. Revanche ?`
+                );
+            } else {
+                envoyerNotification(
+                    joueur1.pseudo,
+                    '🤝 Égalité !',
+                    `Match nul ${score1}-${score2} contre ${joueur2.pseudo}`
+                );
+                envoyerNotification(
+                    joueur2.pseudo,
+                    '🤝 Égalité !',
+                    `Match nul ${score2}-${score1} contre ${joueur1.pseudo}`
+                );
+            }
+
             console.log(`🏆 ${joueur1.pseudo}(${joueur1.victoires}V) vs ${joueur2.pseudo}(${joueur2.victoires}V)`);
         }
 
@@ -406,6 +641,29 @@ io.on('connection', (socket) => {
 });
 
 // ========================================
+// ⏰ CRON JOB : NOTIFICATIONS AUTOMATIQUES
+// ========================================
+// Envoie une notif tous les jours à 18h (optionnel)
+function demarrerCronNotifications() {
+    setInterval(async () => {
+        const maintenant = new Date();
+        const heure = maintenant.getHours();
+        const minute = maintenant.getMinutes();
+
+        // Tous les jours à 18h00
+        if (heure === 18 && minute === 0) {
+            console.log('⏰ Envoi du rappel quotidien...');
+            await envoyerNotificationATous(
+                '🎯 Quiz du jour !',
+                'Un nouveau quiz t\'attend. Viens jouer ! 🚀'
+            );
+        }
+    }, 60000); // Vérifie toutes les minutes
+
+    console.log('⏰ Cron notifications démarré');
+}
+
+// ========================================
 // 🚀 DÉMARRER
 // ========================================
 const PORT = process.env.PORT || 3000;
@@ -415,5 +673,9 @@ chargerClassements().then(data => {
     server.listen(PORT, () => {
         console.log(`🚀 Serveur sur ${PORT}`);
         console.log(`📊 ${Object.keys(classements).length} joueurs chargés`);
+        console.log(`🔔 VAPID configuré: ${VAPID_PUBLIC.substring(0, 20)}...`);
+
+        // Démarrer le cron de notifications
+        demarrerCronNotifications();
     });
 });

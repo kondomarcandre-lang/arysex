@@ -1,5 +1,5 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION CORRIGÉE (duel v2)
+// 🔥 MAIN.JS - VERSION CORRIGÉE (duel v2 + notifications)
 // ========================================
 
 (function () {
@@ -193,7 +193,7 @@
     let duelScoreLocal = 0;
     let duelBonnesLocal = 0;
 
-    // ⚡ CLASSEMENT (limité à 3 + Voir plus)
+    // ⚡ CLASSEMENT
     let classementComplet = [];
     let classementAffiche = 3;
 
@@ -654,6 +654,27 @@
     }
 
     // ========================================
+    // 🔔 NOTIFICATIONS PUSH - FONCTIONS
+    // ========================================
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - base64String.length % 4) % 4);
+        const base64 = (base64String + padding)
+            .replace(/\-/g, '+')
+            .replace(/_/g, '/');
+
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+
+        for (let i = 0; i < rawData.length; ++i) {
+            outputArray[i] = rawData.charCodeAt(i);
+        }
+        return outputArray;
+    }
+
+    // ⚠️ REMPLACE PAR TA VRAIE CLÉ VAPID PUBLIQUE
+    const VAPID_PUBLIC_KEY = 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
+
+    // ========================================
     // INIT
     // ========================================
     function init() {
@@ -748,14 +769,13 @@
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
-            // ✅ NE PAS démarrer le niveau ici !
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
         if (btnModeAfrique) btnModeAfrique.addEventListener('click', (e) => { e.preventDefault(); changerMode('afrique'); });
 
         // ========================================
-        // LANCER JEU (après saisie du pseudo)
+        // LANCER JEU
         // ========================================
         function lancerLeJeu() {
             let pseudo = welcomePseudo.value.trim();
@@ -768,7 +788,6 @@
             welcomeOverlay.style.display = 'none';
             welcomeOverlay.style.visibility = 'hidden';
 
-            // ✅ Afficher l'interface principale (onglets + écran de sélection)
             document.getElementById('tabsContainer').style.display = 'flex';
             document.getElementById('soloContent').style.display = 'block';
             document.getElementById('duelContent').style.display = 'none';
@@ -790,6 +809,7 @@
             if (btnModeAfrique) btnModeAfrique.classList.remove('active');
 
             connecterServeur();
+            initialiserNotifications();
         }
 
         if (welcomeBtn) {
@@ -813,7 +833,6 @@
                 mainGame.style.display = 'flex';
                 mainGame.style.visibility = 'visible';
 
-                // ✅ Mettre à jour le texte du bouton retour
                 const btnRetourUpdate = document.getElementById('btnRetourMode');
                 if (btnRetourUpdate) {
                     const emoji = modeActuel === 'afrique' ? '🌍' : '🌎';
@@ -836,23 +855,17 @@
 
                 console.log('🔙 Bouton retour cliqué !');
 
-                // Arrêter le jeu en cours
                 arreterTimer();
                 estEnJeu = false;
                 estEnChargement = false;
 
-                // Cacher la zone de jeu
                 const mainGameEl = document.getElementById('mainGame');
                 if (mainGameEl) mainGameEl.style.display = 'none';
 
-                // Réafficher l'écran de sélection
                 const zoneSelectionEl = document.getElementById('zoneSelectionMode');
                 if (zoneSelectionEl) zoneSelectionEl.style.display = 'flex';
 
-                // Mettre à jour l'interface
                 mettreAJourInterface();
-
-                // Notification
                 afficherNotification('🎯 Choisissez un nouveau mode', 'success');
             });
         }
@@ -884,7 +897,6 @@
                 duelContent.style.display = 'block';
                 soloContent.classList.remove('active');
                 soloContent.style.display = 'none';
-                // Demander les classements et joueurs
                 if (socket) {
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
@@ -1068,6 +1080,109 @@
             socket.on('fin_duel', (data) => {
                 terminerDuelAffichage(data);
             });
+
+            // ✅ Confirmation push enregistré
+            socket.on('push_enregistre', (data) => {
+                console.log('📬 Push confirmé par le serveur:', data);
+            });
+        }
+
+        // ========================================
+        // 🔔 INITIALISER NOTIFICATIONS
+        // ========================================
+        function initialiserNotifications() {
+            const btnNotif = document.getElementById('btnNotif');
+
+            const notifSupportees =
+                'Notification' in window &&
+                'serviceWorker' in navigator &&
+                'PushManager' in window;
+
+            console.log('🔔 Notifications supportées:', notifSupportees);
+            console.log('🔔 Permission actuelle:', notifSupportees ? Notification.permission : 'N/A');
+
+            if (!notifSupportees || !btnNotif) {
+                if (btnNotif) btnNotif.style.display = 'none';
+                return;
+            }
+
+            // Afficher le bouton selon l'état
+            if (Notification.permission === 'default') {
+                btnNotif.style.display = 'block';
+                btnNotif.textContent = '🔔 Activer les notifications';
+            } else if (Notification.permission === 'granted') {
+                btnNotif.style.display = 'block';
+                btnNotif.textContent = '✅ Notifications activées';
+                btnNotif.classList.add('actif');
+                btnNotif.disabled = true;
+            } else if (Notification.permission === 'denied') {
+                btnNotif.style.display = 'block';
+                btnNotif.textContent = '🔕 Notifications bloquées';
+                btnNotif.disabled = true;
+                btnNotif.style.opacity = '0.5';
+            }
+
+            // Clic sur le bouton
+            btnNotif.addEventListener('click', async function () {
+                if (Notification.permission === 'granted') return;
+
+                try {
+                    console.log('🔔 Demande de permission...');
+                    const permission = await Notification.requestPermission();
+                    console.log('🔔 Permission:', permission);
+
+                    if (permission === 'granted') {
+                        const registration = await navigator.serviceWorker.ready;
+                        console.log('✅ SW prêt:', registration.scope);
+
+                        let subscription = await registration.pushManager.getSubscription();
+
+                        if (!subscription) {
+                            subscription = await registration.pushManager.subscribe({
+                                userVisibleOnly: true,
+                                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                            });
+                            console.log('📬 Nouvel abonnement créé');
+                        } else {
+                            console.log('📬 Abonnement existant récupéré');
+                        }
+
+                        if (socket && socket.connected) {
+                            socket.emit('enregistrer_push', {
+                                subscription: subscription,
+                                pseudo: profilNom.textContent
+                            });
+                            console.log('📤 Abonnement envoyé au serveur');
+                        }
+
+                        btnNotif.textContent = '✅ Notifications activées';
+                        btnNotif.classList.add('actif');
+                        btnNotif.disabled = true;
+
+                        afficherNotification('🔔 Notifications activées !', 'success');
+                        SoundManager.correct();
+
+                        setTimeout(() => {
+                            registration.showNotification('🎯 AryseX Quiz', {
+                                body: 'Les notifications sont activées ! Tu recevras les nouveaux quiz. 🚀',
+                                icon: '/icons/icon-192.png',
+                                badge: '/icons/icon-96.png',
+                                vibrate: [200, 100, 200]
+                            });
+                        }, 1500);
+
+                    } else if (permission === 'denied') {
+                        btnNotif.textContent = '🔕 Notifications bloquées';
+                        btnNotif.disabled = true;
+                        btnNotif.style.opacity = '0.5';
+                        afficherNotification('❌ Notifications refusées', 'error');
+                    }
+
+                } catch (error) {
+                    console.error('❌ Erreur notifications:', error);
+                    afficherNotification('❌ Erreur lors de l\'activation', 'error');
+                }
+            });
         }
 
         // ========================================
@@ -1128,7 +1243,7 @@
         window.inviterDuel = inviterDuel;
 
         // ========================================
-        // GÉNÉRER QUESTIONS DUEL (5 Afrique + 3 Monde)
+        // GÉNÉRER QUESTIONS DUEL
         // ========================================
         function genererQuestionsDuel() {
             const afrique = window.QUESTIONS_AFRIQUE || [];
@@ -1330,7 +1445,7 @@
         }
 
         // ========================================
-        // CLASSEMENTS (limité à 3 + Voir plus)
+        // CLASSEMENTS
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
@@ -1426,7 +1541,7 @@
         if (btnQuitterDuel) btnQuitterDuel.addEventListener('click', quitterDuel);
 
         // ========================================
-        // ONGLETS CLASSEMENT (Duels / Personnel)
+        // ONGLETS CLASSEMENT
         // ========================================
         classementTabs.forEach(tab => {
             tab.addEventListener('click', function () {
@@ -1460,7 +1575,6 @@
             if (welcomePseudo) welcomePseudo.focus();
         }
 
-        // Cacher les onglets et contenus au démarrage
         const tabsContainer = document.getElementById('tabsContainer');
         const soloContentInit = document.getElementById('soloContent');
         const duelContentInit = document.getElementById('duelContent');
