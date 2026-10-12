@@ -1,11 +1,25 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION CORRIGÉE (duel v2 + notifications)
+// 🔥 MAIN.JS - VERSION CORRIGÉE FINALE
+// (duel v2 + notifications persistantes + sécurité)
 // ========================================
 
 (function () {
     'use strict';
 
     console.log('📄 MAIN.JS - Initialisation...');
+
+    // ========================================
+    // 🔒 SÉCURITÉ : ÉCHAPPEMENT HTML
+    // ========================================
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
 
     // ========================================
     // 🔊 SONS
@@ -192,6 +206,7 @@
     let duelIndex = 0;
     let duelScoreLocal = 0;
     let duelBonnesLocal = 0;
+    let duelReponsesEnvoyees = {}; // pour éviter les doubles envois
 
     // ⚡ CLASSEMENT
     let classementComplet = [];
@@ -671,8 +686,35 @@
         return outputArray;
     }
 
-    // ⚠️ REMPLACE PAR TA VRAIE CLÉ VAPID PUBLIQUE
     const VAPID_PUBLIC_KEY = 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
+
+    // ========================================
+    // 🔁 RÉ-ENREGISTRER L'ABONNEMENT PUSH
+    // ========================================
+    async function reenregistrerPush() {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        if (!socket || !socket.connected) return;
+
+        const pseudo = localStorage.getItem('quiz_pseudo');
+        if (!pseudo) return;
+
+        try {
+            const reg = await navigator.serviceWorker.ready;
+            const sub = await reg.pushManager.getSubscription();
+
+            if (sub) {
+                socket.emit('enregistrer_push', {
+                    subscription: sub.toJSON(),
+                    pseudo: pseudo
+                });
+                console.log('🔁 Abonnement push ré-enregistré pour', pseudo);
+            } else {
+                console.log('ℹ️ Aucun abonnement push existant');
+            }
+        } catch (e) {
+            console.error('❌ Erreur ré-enregistrement push:', e);
+        }
+    }
 
     // ========================================
     // INIT
@@ -977,6 +1019,7 @@
                     if (modalPseudo) modalPseudo.style.display = 'none';
                     afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
                     if (socket) socket.emit('reconnecter', { pseudo: nouveauPseudo });
+                    setTimeout(() => reenregistrerPush(), 500);
                 } else {
                     afficherNotification('❌ Pseudo trop court (minimum 2 caractères)', 'error');
                 }
@@ -1018,6 +1061,7 @@
                     niveau: niveauActuel,
                     score: scoreTotal
                 });
+                setTimeout(() => reenregistrerPush(), 1000);
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
@@ -1026,10 +1070,13 @@
             socket.on('invitation_refusee', (data) => {
                 afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
                 duelInvitation.style.display = 'none';
+                estEnDuel = false; // ✅ CORRECTION
             });
 
             socket.on('erreur', (data) => {
                 afficherNotification(`❌ ${data.message}`, 'error');
+                estEnDuel = false; // ✅ CORRECTION
+                duelInvitation.style.display = 'none';
             });
 
             socket.on('invitation_duel', (data) => {
@@ -1049,6 +1096,7 @@
                 duelIndex = 0;
                 duelScoreLocal = 0;
                 duelBonnesLocal = 0;
+                duelReponsesEnvoyees = {};
 
                 duelOverlay.style.display = 'flex';
                 duelNom1.textContent = profilNom.textContent;
@@ -1081,7 +1129,6 @@
                 terminerDuelAffichage(data);
             });
 
-            // ✅ Confirmation push enregistré
             socket.on('push_enregistre', (data) => {
                 console.log('📬 Push confirmé par le serveur:', data);
             });
@@ -1099,14 +1146,12 @@
                 'PushManager' in window;
 
             console.log('🔔 Notifications supportées:', notifSupportees);
-            console.log('🔔 Permission actuelle:', notifSupportees ? Notification.permission : 'N/A');
 
             if (!notifSupportees || !btnNotif) {
                 if (btnNotif) btnNotif.style.display = 'none';
                 return;
             }
 
-            // Afficher le bouton selon l'état
             if (Notification.permission === 'default') {
                 btnNotif.style.display = 'block';
                 btnNotif.textContent = '🔔 Activer les notifications';
@@ -1115,6 +1160,7 @@
                 btnNotif.textContent = '✅ Notifications activées';
                 btnNotif.classList.add('actif');
                 btnNotif.disabled = true;
+                setTimeout(() => reenregistrerPush(), 1500);
             } else if (Notification.permission === 'denied') {
                 btnNotif.style.display = 'block';
                 btnNotif.textContent = '🔕 Notifications bloquées';
@@ -1122,7 +1168,6 @@
                 btnNotif.style.opacity = '0.5';
             }
 
-            // Clic sur le bouton
             btnNotif.addEventListener('click', async function () {
                 if (Notification.permission === 'granted') return;
 
@@ -1133,8 +1178,6 @@
 
                     if (permission === 'granted') {
                         const registration = await navigator.serviceWorker.ready;
-                        console.log('✅ SW prêt:', registration.scope);
-
                         let subscription = await registration.pushManager.getSubscription();
 
                         if (!subscription) {
@@ -1152,7 +1195,6 @@
                                 subscription: subscription,
                                 pseudo: profilNom.textContent
                             });
-                            console.log('📤 Abonnement envoyé au serveur');
                         }
 
                         btnNotif.textContent = '✅ Notifications activées';
@@ -1186,7 +1228,7 @@
         }
 
         // ========================================
-        // JOUEURS EN LIGNE
+        // JOUEURS EN LIGNE (CORRIGÉ - XSS + apostrophes)
         // ========================================
         function afficherJoueursEnLigne(joueurs) {
             if (!duelListe) return;
@@ -1199,16 +1241,23 @@
             duelListe.innerHTML = joueurs.map(j => `
                 <div class="duel-item">
                     <div>
-                        <div class="duel-pseudo">${j.pseudo}</div>
+                        <div class="duel-pseudo">${escapeHtml(j.pseudo)}</div>
                         <div class="duel-infos">Niv. ${j.niveau} · ⭐ ${j.score} pts</div>
                     </div>
                     ${estEnDuel ? '<span class="duel-statut">⚔️ En duel</span>' : `
-                        <button class="btn-defier" onclick="window.inviterDuel('${j.id}')">
+                        <button class="btn-defier" data-joueur-id="${escapeHtml(j.id)}">
                             ⚔️ Défier
                         </button>
                     `}
                 </div>
             `).join('');
+
+            // ✅ Attacher les événements proprement (plus de onclick inline)
+            duelListe.querySelectorAll('.btn-defier').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    inviterDuel(btn.dataset.joueurId);
+                });
+            });
         }
 
         // ========================================
@@ -1224,12 +1273,11 @@
             const questions = genererQuestionsDuel();
 
             let nomAdversaire = 'Adversaire';
-            document.querySelectorAll('.duel-item').forEach(item => {
-                const btn = item.querySelector('.btn-defier');
-                if (btn && btn.getAttribute('onclick')?.includes(idAdversaire)) {
-                    nomAdversaire = item.querySelector('.duel-pseudo')?.textContent || 'Adversaire';
-                }
-            });
+            const btn = document.querySelector(`.btn-defier[data-joueur-id="${idAdversaire}"]`);
+            if (btn) {
+                const item = btn.closest('.duel-item');
+                nomAdversaire = item?.querySelector('.duel-pseudo')?.textContent || 'Adversaire';
+            }
 
             socket.emit('inviter_duel', {
                 adversaireId: idAdversaire,
@@ -1239,8 +1287,6 @@
             invitationNom.textContent = nomAdversaire;
             duelInvitation.style.display = 'block';
         }
-
-        window.inviterDuel = inviterDuel;
 
         // ========================================
         // GÉNÉRER QUESTIONS DUEL
@@ -1349,7 +1395,7 @@
                 btn.textContent = `${lettres[idx]}. ${opt}`;
                 btn.onclick = () => {
                     if (btn.disabled) return;
-                    document.querySelectorAll('.duel-reponses-container button').forEach(b => b.disabled = true);
+                    duelReponsesContainer.querySelectorAll('button').forEach(b => b.disabled = true);
                     clearInterval(duelTimerInterval);
 
                     const allBtns = duelReponsesContainer.querySelectorAll('button');
@@ -1363,34 +1409,34 @@
         }
 
         // ========================================
-        // VALIDER RÉPONSE DUEL
+        // VALIDER RÉPONSE DUEL (CORRIGÉ - serveur valide)
         // ========================================
         function validerReponseDuel(idxChoisi) {
-            const question = duelQuestions[duelIndex];
+            // ✅ Anti double-envoi
+            if (duelReponsesEnvoyees[duelIndex]) return;
+            duelReponsesEnvoyees[duelIndex] = true;
+
             const tempsRestant = duelTempsRestant;
 
-            if (idxChoisi === question.correct) {
-                const bonus = Math.max(0, Math.floor(tempsRestant / 3) * 5);
-                duelScoreLocal += 10 + bonus;
-                duelBonnesLocal++;
-                SoundManager.correct();
-                Haptic.medium();
-            } else {
-                SoundManager.incorrect();
-                Haptic.heavy();
-            }
-
-            duelScore1.textContent = duelScoreLocal;
-            duelReponses1.textContent = `✅ ${duelBonnesLocal}`;
-
+            // Affichage optimiste côté client (sera confirmé/corrigé par le serveur)
+            // Le serveur reste la source de vérité pour le score final
             socket.emit('reponse_duel', {
                 salleId: salleId,
                 indexQuestion: duelIndex,
                 reponse: idxChoisi,
-                tempsRestant: tempsRestant,
-                score: duelScoreLocal,
-                bonnes: duelBonnesLocal
+                tempsRestant: tempsRestant
             });
+
+            // Petits sons locaux immédiats (UX)
+            const question = duelQuestions[duelIndex];
+            if (idxChoisi === question.correct) {
+                SoundManager.correct();
+                Haptic.medium();
+                lancerConfettis();
+            } else {
+                SoundManager.incorrect();
+                Haptic.heavy();
+            }
 
             setTimeout(() => afficherQuestionDuel(duelIndex + 1), 1500);
         }
@@ -1426,6 +1472,12 @@
 
             duelStats1.textContent = `${data.joueur1.pseudo}: ${data.joueur1.score} pts (${data.joueur1.reponses} bonnes réponses)`;
             duelStats2.textContent = `${data.joueur2.pseudo}: ${data.joueur2.score} pts (${data.joueur2.reponses} bonnes réponses)`;
+
+            // Mettre à jour les scores affichés avec les valeurs finales du serveur
+            duelScore1.textContent = data.joueur1.score;
+            duelScore2.textContent = data.joueur2.score;
+            duelReponses1.textContent = `✅ ${data.joueur1.reponses}`;
+            duelReponses2.textContent = `✅ ${data.joueur2.reponses}`;
         }
 
         // ========================================
@@ -1440,12 +1492,13 @@
             duelResultat.style.display = 'none';
             duelReponsesContainer.innerHTML = '';
             duelTimer.style.display = 'none';
+            duelReponsesEnvoyees = {};
 
             if (socket) socket.emit('demander_joueurs');
         }
 
         // ========================================
-        // CLASSEMENTS
+        // CLASSEMENTS (CORRIGÉ - XSS)
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
@@ -1481,7 +1534,7 @@
                 html += `
                     <div class="classement-item">
                         <span class="rank ${rankClass}">${medal}</span>
-                        <span class="nom">${j.pseudo} ${j.enLigne ? '<span class="online">●</span>' : ''}</span>
+                        <span class="nom">${escapeHtml(j.pseudo)} ${j.enLigne ? '<span class="online">●</span>' : ''}</span>
                         <div class="stats">
                             ${tabClassementActif === 'duel' ? `
                                 <span class="victoires">🏆 ${j.victoires || 0}</span>
@@ -1534,6 +1587,7 @@
         if (btnAnnulerDuel) {
             btnAnnulerDuel.addEventListener('click', function () {
                 duelInvitation.style.display = 'none';
+                estEnDuel = false; // ✅ CORRECTION
             });
         }
 
@@ -1585,10 +1639,18 @@
         if (duelContentInit) duelContentInit.style.display = 'none';
         if (zoneSelectionModeInit) zoneSelectionModeInit.style.display = 'flex';
 
+        // ========================================
+        // ✅ SAUVEGARDE AVANT FERMETURE (CORRIGÉ)
+        // ========================================
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
-            sauvegarderDonneesMode(modeActuel);
+            sauvegarderDonneesMode(modeActuel); 
             sauvegarderDefi();
+
+            // ✅ Envoyer le score solo au serveur avant de partir
+            if (socket && socket.connected) {
+                socket.emit('mettre_a_jour_score', { score: scoreTotal });
+            }
         });
 
         const stylePopIn = document.createElement('style');
