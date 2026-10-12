@@ -1,26 +1,26 @@
-// Service Worker AryseX Quiz
+// ========================================
+// 🔥 SERVICE WORKER - AryseX Quiz
+// Version SANS cache (la plus simple et fiable)
+// ========================================
 
 self.addEventListener('install', (event) => {
-    console.log('SW install');
+    console.log('🔧 SW install');
     self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-    console.log('SW activé');
+    console.log('✅ SW activé');
     event.waitUntil(self.clients.claim());
 });
 
-self.addEventListener('fetch', (event) => {
-    if (event.request.url.includes('/api/') || event.request.url.includes('/socket.io/')) {
-        return;
-    }
-    event.respondWith(
-        fetch(event.request).catch(() => caches.match(event.request))
-    );
-});
+// ⚠️ Ne PAS intercepter les fetch — laisser le navigateur faire son travail
+// (C'est ce qui causait l'erreur "Failed to convert value to Response")
 
+// ========================================
+// 🔔 PUSH
+// ========================================
 self.addEventListener('push', (event) => {
-    console.log('Push reçu');
+    console.log('📬 Push reçu');
 
     let data = {
         title: 'AryseX Quiz',
@@ -49,23 +49,28 @@ self.addEventListener('push', (event) => {
     );
 });
 
+// ========================================
+// 👆 CLIC NOTIFICATION
+// ========================================
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
+
     const url = event.notification.data && event.notification.data.url
         ? event.notification.data.url
         : '/';
 
     event.waitUntil(
-        clients.matchAll({ type: 'window' }).then((windowClients) => {
-            for (let i = 0; i < windowClients.length; i++) {
-                const client = windowClients[i];
-                if (client.url.indexOf(self.location.origin) !== -1 && 'focus' in client) {
-                    return client.focus();
+        clients.matchAll({ type: 'window', includeUncontrolled: true })
+            .then((windowClients) => {
+                for (let i = 0; i < windowClients.length; i++) {
+                    const client = windowClients[i];
+                    if (client.url.indexOf(self.location.origin) !== -1 && 'focus' in client) {
+                        return client.focus();
+                    }
                 }
-            }
-            if (clients.openWindow) {
-                return clients.openWindow(url);
-            }
-        })
+                if (clients.openWindow) {
+                    return clients.openWindow(url);
+                }
+            })
     );
 });
