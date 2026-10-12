@@ -206,7 +206,7 @@
     let duelIndex = 0;
     let duelScoreLocal = 0;
     let duelBonnesLocal = 0;
-    let duelReponsesEnvoyees = {}; // pour éviter les doubles envois
+    let duelReponsesEnvoyees = {};
 
     // ⚡ CLASSEMENT
     let classementComplet = [];
@@ -1053,6 +1053,7 @@
                 : 'https://arysex-quiz-duel.onrender.com';
 
             socket = io(serverUrl);
+            window.socket = socket; // ✅ Exposition pour debug
 
             socket.on('connect', () => {
                 console.log('🔗 Connecté au serveur de duel');
@@ -1070,12 +1071,12 @@
             socket.on('invitation_refusee', (data) => {
                 afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
                 duelInvitation.style.display = 'none';
-                estEnDuel = false; // ✅ CORRECTION
+                estEnDuel = false;
             });
 
             socket.on('erreur', (data) => {
                 afficherNotification(`❌ ${data.message}`, 'error');
-                estEnDuel = false; // ✅ CORRECTION
+                estEnDuel = false;
                 duelInvitation.style.display = 'none';
             });
 
@@ -1121,6 +1122,14 @@
                 duelReponses2.textContent = `✅ ${data.adversaireBonnes || 0}`;
             });
 
+            // ✅ NOUVEAU : mise à jour autoritaire du score par le serveur
+            socket.on('mon_score_duel', (data) => {
+                duelScoreLocal = data.score;
+                duelBonnesLocal = data.bonnes;
+                duelScore1.textContent = duelScoreLocal;
+                duelReponses1.textContent = `✅ ${duelBonnesLocal}`;
+            });
+
             socket.on('adversaire_termine', () => {
                 duelQuestionNumero.textContent = '🎯 L\'adversaire a terminé. En attente...';
             });
@@ -1135,7 +1144,7 @@
         }
 
         // ========================================
-        // 🔔 INITIALISER NOTIFICATIONS
+        // 🔔 INITIALISER NOTIFICATIONS (CORRIGÉ)
         // ========================================
         function initialiserNotifications() {
             const btnNotif = document.getElementById('btnNotif');
@@ -1168,61 +1177,81 @@
                 btnNotif.style.opacity = '0.5';
             }
 
+            // ✅ CORRECTION CLÉ : plus de "return" si déjà accordé
             btnNotif.addEventListener('click', async function () {
-                if (Notification.permission === 'granted') return;
-
                 try {
-                    console.log('🔔 Demande de permission...');
-                    const permission = await Notification.requestPermission();
-                    console.log('🔔 Permission:', permission);
+                    console.log('🔔 Clic sur bouton notifications');
 
-                    if (permission === 'granted') {
-                        const registration = await navigator.serviceWorker.ready;
-                        let subscription = await registration.pushManager.getSubscription();
+                    // 1. Permission
+                    let permission = Notification.permission;
+                    if (permission !== 'granted') {
+                        console.log('🔔 Demande de permission...');
+                        permission = await Notification.requestPermission();
+                        console.log('🔔 Permission:', permission);
+                    } else {
+                        console.log('🔔 Permission déjà accordée');
+                    }
 
-                        if (!subscription) {
-                            subscription = await registration.pushManager.subscribe({
-                                userVisibleOnly: true,
-                                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
-                            });
-                            console.log('📬 Nouvel abonnement créé');
-                        } else {
-                            console.log('📬 Abonnement existant récupéré');
-                        }
-
-                        if (socket && socket.connected) {
-                            socket.emit('enregistrer_push', {
-                                subscription: subscription,
-                                pseudo: profilNom.textContent
-                            });
-                        }
-
-                        btnNotif.textContent = '✅ Notifications activées';
-                        btnNotif.classList.add('actif');
-                        btnNotif.disabled = true;
-
-                        afficherNotification('🔔 Notifications activées !', 'success');
-                        SoundManager.correct();
-
-                        setTimeout(() => {
-                            registration.showNotification('🎯 AryseX Quiz', {
-                                body: 'Les notifications sont activées ! Tu recevras les nouveaux quiz. 🚀',
-                                icon: '/icons/icon-192.png',
-                                badge: '/icons/icon-96.png',
-                                vibrate: [200, 100, 200]
-                            });
-                        }, 1500);
-
-                    } else if (permission === 'denied') {
+                    if (permission !== 'granted') {
                         btnNotif.textContent = '🔕 Notifications bloquées';
                         btnNotif.disabled = true;
                         btnNotif.style.opacity = '0.5';
                         afficherNotification('❌ Notifications refusées', 'error');
+                        return;
                     }
+
+                    // 2. Service Worker
+                    const registration = await navigator.serviceWorker.ready;
+                    console.log('✅ SW prêt:', registration.scope);
+
+                    // 3. Abonnement (création ou récupération)
+                    let subscription = await registration.pushManager.getSubscription();
+
+                    if (!subscription) {
+                        console.log('📬 Création nouvel abonnement...');
+                        subscription = await registration.pushManager.subscribe({
+                            userVisibleOnly: true,
+                            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
+                        });
+                        console.log('✅ Abonnement créé');
+                    } else {
+                        console.log('✅ Abonnement existant trouvé');
+                    }
+
+                    // 4. Envoi au serveur
+                    if (socket && socket.connected) {
+                        socket.emit('enregistrer_push', {
+                            subscription: subscription.toJSON(),
+                            pseudo: profilNom.textContent
+                        });
+                        console.log('📤 Abonnement envoyé au serveur pour', profilNom.textContent);
+                    } else {
+                        console.warn('⚠️ Socket non connecté');
+                        afficherNotification('⚠️ Reconnecte-toi et réessaie', 'error');
+                        return;
+                    }
+
+                    // 5. UI
+                    btnNotif.textContent = '✅ Notifications activées';
+                    btnNotif.classList.add('actif');
+                    btnNotif.disabled = true;
+
+                    afficherNotification('🔔 Notifications activées !', 'success');
+                    SoundManager.correct();
+
+                    // 6. Notif de test locale
+                    setTimeout(() => {
+                        registration.showNotification('🎯 AryseX Quiz', {
+                            body: 'Les notifications sont activées ! Tu recevras les nouveaux quiz. 🚀',
+                            icon: '/icons/icon-192.png',
+                            badge: '/icons/icon-96.png',
+                            vibrate: [200, 100, 200]
+                        });
+                    }, 1500);
 
                 } catch (error) {
                     console.error('❌ Erreur notifications:', error);
-                    afficherNotification('❌ Erreur lors de l\'activation', 'error');
+                    afficherNotification('❌ Erreur: ' + error.message, 'error');
                 }
             });
         }
@@ -1252,7 +1281,6 @@
                 </div>
             `).join('');
 
-            // ✅ Attacher les événements proprement (plus de onclick inline)
             duelListe.querySelectorAll('.btn-defier').forEach(btn => {
                 btn.addEventListener('click', () => {
                     inviterDuel(btn.dataset.joueurId);
@@ -1412,14 +1440,11 @@
         // VALIDER RÉPONSE DUEL (CORRIGÉ - serveur valide)
         // ========================================
         function validerReponseDuel(idxChoisi) {
-            // ✅ Anti double-envoi
             if (duelReponsesEnvoyees[duelIndex]) return;
             duelReponsesEnvoyees[duelIndex] = true;
 
             const tempsRestant = duelTempsRestant;
 
-            // Affichage optimiste côté client (sera confirmé/corrigé par le serveur)
-            // Le serveur reste la source de vérité pour le score final
             socket.emit('reponse_duel', {
                 salleId: salleId,
                 indexQuestion: duelIndex,
@@ -1427,7 +1452,6 @@
                 tempsRestant: tempsRestant
             });
 
-            // Petits sons locaux immédiats (UX)
             const question = duelQuestions[duelIndex];
             if (idxChoisi === question.correct) {
                 SoundManager.correct();
@@ -1473,7 +1497,6 @@
             duelStats1.textContent = `${data.joueur1.pseudo}: ${data.joueur1.score} pts (${data.joueur1.reponses} bonnes réponses)`;
             duelStats2.textContent = `${data.joueur2.pseudo}: ${data.joueur2.score} pts (${data.joueur2.reponses} bonnes réponses)`;
 
-            // Mettre à jour les scores affichés avec les valeurs finales du serveur
             duelScore1.textContent = data.joueur1.score;
             duelScore2.textContent = data.joueur2.score;
             duelReponses1.textContent = `✅ ${data.joueur1.reponses}`;
@@ -1587,7 +1610,7 @@
         if (btnAnnulerDuel) {
             btnAnnulerDuel.addEventListener('click', function () {
                 duelInvitation.style.display = 'none';
-                estEnDuel = false; // ✅ CORRECTION
+                estEnDuel = false;
             });
         }
 
@@ -1640,14 +1663,13 @@
         if (zoneSelectionModeInit) zoneSelectionModeInit.style.display = 'flex';
 
         // ========================================
-        // ✅ SAUVEGARDE AVANT FERMETURE (CORRIGÉ)
+        // SAUVEGARDE AVANT FERMETURE
         // ========================================
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
-            sauvegarderDonneesMode(modeActuel); 
+            sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
 
-            // ✅ Envoyer le score solo au serveur avant de partir
             if (socket && socket.connected) {
                 socket.emit('mettre_a_jour_score', { score: scoreTotal });
             }
