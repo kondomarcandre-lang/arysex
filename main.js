@@ -1,6 +1,6 @@
 // ========================================
 // 🔥 MAIN.JS - VERSION CORRIGÉE FINALE
-// (duel v2 + notifications persistantes + sécurité)
+// (duel v2 + notifications persistantes + sync score + sécurité)
 // ========================================
 
 (function () {
@@ -19,6 +19,17 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    // ========================================
+    // 🔧 NORMALISATION PSEUDO
+    // ========================================
+    function normaliserPseudo(pseudo) {
+        if (!pseudo) return '';
+        const trimmed = pseudo.trim();
+        if (trimmed.length === 0) return '';
+        // Première lettre maj, le reste minuscule
+        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
     }
 
     // ========================================
@@ -212,6 +223,9 @@
     let classementComplet = [];
     let classementAffiche = 3;
 
+    // 🔄 Flag pour éviter la boucle de sync
+    let syncScoreEnCours = false;
+
     // ========================================
     // SAUVEGARDE MODE
     // ========================================
@@ -346,7 +360,11 @@
         if (btnDaily) btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
 
         if (socket && socket.connected) {
-            socket.emit('mettre_a_jour_score', { score: scoreTotal });
+            // 🔧 On demande au serveur de REMPLACER (mode: 'set')
+            socket.emit('mettre_a_jour_score', {
+                score: scoreTotal,
+                mode: 'set'
+            });
         }
 
         mettreAJourRang();
@@ -823,8 +841,10 @@
             let pseudo = welcomePseudo.value.trim();
             if (!pseudo || pseudo.length < 2) {
                 pseudo = 'Joueur';
-                welcomePseudo.value = pseudo;
             }
+            // 🔧 Normalisation
+            pseudo = normaliserPseudo(pseudo);
+            welcomePseudo.value = pseudo;
             try { localStorage.setItem('quiz_pseudo', pseudo); } catch (e) { }
 
             welcomeOverlay.style.display = 'none';
@@ -1012,8 +1032,9 @@
 
         if (btnPseudoOk) {
             btnPseudoOk.addEventListener('click', function () {
-                const nouveauPseudo = inputPseudo.value.trim();
+                let nouveauPseudo = inputPseudo.value.trim();
                 if (nouveauPseudo && nouveauPseudo.length >= 2) {
+                    nouveauPseudo = normaliserPseudo(nouveauPseudo);
                     profilNom.textContent = nouveauPseudo;
                     try { localStorage.setItem('quiz_pseudo', nouveauPseudo); } catch (e) { }
                     if (modalPseudo) modalPseudo.style.display = 'none';
@@ -1053,7 +1074,7 @@
                 : 'https://arysex-quiz-duel.onrender.com';
 
             socket = io(serverUrl);
-            window.socket = socket; // ✅ Exposition pour debug
+            window.socket = socket;
 
             socket.on('connect', () => {
                 console.log('🔗 Connecté au serveur de duel');
@@ -1066,7 +1087,29 @@
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
-            socket.on('classements', (classements) => afficherClassements(classements));
+
+            // 🔄 SYNC SCORE : on récupère le score du serveur s'il est plus grand
+            socket.on('classements', (classements) => {
+                afficherClassements(classements);
+
+                // Ne pas sync pendant qu'on joue (pour éviter d'écraser un score en cours)
+                if (estEnJeu || estEnDuel || syncScoreEnCours) return;
+
+                const pseudo = profilNom.textContent;
+                const monEntree = classements.find(c => c.pseudo === pseudo);
+
+                if (monEntree && monEntree.soloScore > 0) {
+                    if (monEntree.soloScore > scoreTotal) {
+                        syncScoreEnCours = true;
+                        console.log(`🔄 Sync serveur → local : ${scoreTotal} → ${monEntree.soloScore}`);
+                        scoreTotal = monEntree.soloScore;
+                        sauvegarderPartie();
+                        mettreAJourStats();
+                        mettreAJourInterface();
+                        setTimeout(() => { syncScoreEnCours = false; }, 2000);
+                    }
+                }
+            });
 
             socket.on('invitation_refusee', (data) => {
                 afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
@@ -1122,7 +1165,6 @@
                 duelReponses2.textContent = `✅ ${data.adversaireBonnes || 0}`;
             });
 
-            // ✅ NOUVEAU : mise à jour autoritaire du score par le serveur
             socket.on('mon_score_duel', (data) => {
                 duelScoreLocal = data.score;
                 duelBonnesLocal = data.bonnes;
@@ -1144,7 +1186,7 @@
         }
 
         // ========================================
-        // 🔔 INITIALISER NOTIFICATIONS (CORRIGÉ)
+        // 🔔 INITIALISER NOTIFICATIONS
         // ========================================
         function initialiserNotifications() {
             const btnNotif = document.getElementById('btnNotif');
@@ -1177,12 +1219,10 @@
                 btnNotif.style.opacity = '0.5';
             }
 
-            // ✅ CORRECTION CLÉ : plus de "return" si déjà accordé
             btnNotif.addEventListener('click', async function () {
                 try {
                     console.log('🔔 Clic sur bouton notifications');
 
-                    // 1. Permission
                     let permission = Notification.permission;
                     if (permission !== 'granted') {
                         console.log('🔔 Demande de permission...');
@@ -1200,11 +1240,9 @@
                         return;
                     }
 
-                    // 2. Service Worker
                     const registration = await navigator.serviceWorker.ready;
                     console.log('✅ SW prêt:', registration.scope);
 
-                    // 3. Abonnement (création ou récupération)
                     let subscription = await registration.pushManager.getSubscription();
 
                     if (!subscription) {
@@ -1218,7 +1256,6 @@
                         console.log('✅ Abonnement existant trouvé');
                     }
 
-                    // 4. Envoi au serveur
                     if (socket && socket.connected) {
                         socket.emit('enregistrer_push', {
                             subscription: subscription.toJSON(),
@@ -1231,7 +1268,6 @@
                         return;
                     }
 
-                    // 5. UI
                     btnNotif.textContent = '✅ Notifications activées';
                     btnNotif.classList.add('actif');
                     btnNotif.disabled = true;
@@ -1239,7 +1275,6 @@
                     afficherNotification('🔔 Notifications activées !', 'success');
                     SoundManager.correct();
 
-                    // 6. Notif de test locale
                     setTimeout(() => {
                         registration.showNotification('🎯 AryseX Quiz', {
                             body: 'Les notifications sont activées ! Tu recevras les nouveaux quiz. 🚀',
@@ -1257,7 +1292,7 @@
         }
 
         // ========================================
-        // JOUEURS EN LIGNE (CORRIGÉ - XSS + apostrophes)
+        // JOUEURS EN LIGNE
         // ========================================
         function afficherJoueursEnLigne(joueurs) {
             if (!duelListe) return;
@@ -1437,7 +1472,7 @@
         }
 
         // ========================================
-        // VALIDER RÉPONSE DUEL (CORRIGÉ - serveur valide)
+        // VALIDER RÉPONSE DUEL
         // ========================================
         function validerReponseDuel(idxChoisi) {
             if (duelReponsesEnvoyees[duelIndex]) return;
@@ -1521,7 +1556,7 @@
         }
 
         // ========================================
-        // CLASSEMENTS (CORRIGÉ - XSS)
+        // CLASSEMENTS
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
@@ -1671,7 +1706,10 @@
             sauvegarderDefi();
 
             if (socket && socket.connected) {
-                socket.emit('mettre_a_jour_score', { score: scoreTotal });
+                socket.emit('mettre_a_jour_score', {
+                    score: scoreTotal,
+                    mode: 'set'
+                });
             }
         });
 
