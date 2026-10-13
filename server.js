@@ -1,7 +1,6 @@
 // ========================================
 // 🔥 SERVEUR - AryseX Quiz Duel
-// jsonbin.io + web-push + notifications auto 10h/16h (Abidjan)
-// VERSION CORRIGÉE : validation serveur des réponses duel
+// jsonbin.io + web-push + notifications fun à la connexion
 // ========================================
 
 const express = require('express');
@@ -9,6 +8,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const webpush = require('web-push');
+const { getMessage } = require('./messages');
 
 const app = express();
 const server = http.createServer(app);
@@ -38,6 +38,13 @@ const invitations = {};
 
 let classements = {};
 let abonnementsPush = {};
+let meta = {
+    derniereNotif10h: null,
+    derniereNotif16h: null
+};
+
+// Anti-double envoi simultané
+let envoiNotifEnCours = false;
 
 // ========================================
 // 💾 JSONBIN.IO
@@ -54,24 +61,29 @@ async function chargerDonnees() {
         const data = await res.json();
         const record = data.record || {};
 
-        if (record && (record.classements || record.abonnementsPush)) {
+        if (record && (record.classements || record.abonnementsPush || record.meta)) {
             classements = record.classements || {};
             abonnementsPush = record.abonnementsPush || {};
+            meta = record.meta || { derniereNotif10h: null, derniereNotif16h: null };
         } else if (record && typeof record === 'object') {
             // Ancien format : le record EST le classement
             classements = record;
             abonnementsPush = {};
+            meta = { derniereNotif10h: null, derniereNotif16h: null };
         } else {
             classements = {};
             abonnementsPush = {};
+            meta = { derniereNotif10h: null, derniereNotif16h: null };
         }
 
         console.log(`📂 ${Object.keys(classements).length} joueurs chargés`);
         console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push chargés`);
+        console.log(`📅 Meta: 10h=${meta.derniereNotif10h || 'jamais'}, 16h=${meta.derniereNotif16h || 'jamais'}`);
     } catch (e) {
         console.error('❌ Erreur chargement jsonbin:', e.message);
         classements = {};
         abonnementsPush = {};
+        meta = { derniereNotif10h: null, derniereNotif16h: null };
     }
 }
 
@@ -86,7 +98,7 @@ function sauvegarderDonnees() {
                     'Content-Type': 'application/json',
                     'X-Master-Key': JSONBIN_API_KEY
                 },
-                body: JSON.stringify({ classements, abonnementsPush })
+                body: JSON.stringify({ classements, abonnementsPush, meta })
             });
             if (res.ok) {
                 console.log(`💾 Sauvegardé (${Object.keys(classements).length} joueurs, ${Object.keys(abonnementsPush).length} abonnés)`);
@@ -192,6 +204,46 @@ function getHeureAbidjan() {
 }
 
 // ========================================
+// 🔔 NOTIFICATIONS À LA CONNEXION (MESSAGES FUN)
+// ========================================
+async function verifierNotificationsJour() {
+    if (envoiNotifEnCours) return;
+    envoiNotifEnCours = true;
+
+    try {
+        const { heure, minute, jour } = getHeureAbidjan();
+
+        // ---- Notification du matin (à partir de 10h) ----
+        if ((heure > 10 || (heure === 10 && minute >= 0))
+            && meta.derniereNotif10h !== jour) {
+
+            meta.derniereNotif10h = jour;
+            sauvegarderDonnees();
+
+            const msg = getMessage('matin');
+            console.log(`⏰ [Connexion] Notif matinale (${jour} ${heure}h${minute}) : "${msg.titre}"`);
+            await envoyerNotificationATous(msg.titre, msg.body, '/');
+        }
+
+        // ---- Notification de l'après-midi (à partir de 16h) ----
+        if ((heure > 16 || (heure === 16 && minute >= 0))
+            && meta.derniereNotif16h !== jour) {
+
+            meta.derniereNotif16h = jour;
+            sauvegarderDonnees();
+
+            const msg = getMessage('apresMidi');
+            console.log(`⏰ [Connexion] Notif après-midi (${jour} ${heure}h${minute}) : "${msg.titre}"`);
+            await envoyerNotificationATous(msg.titre, msg.body, '/');
+        }
+    } catch (e) {
+        console.error('❌ Erreur verifierNotificationsJour:', e.message);
+    } finally {
+        envoiNotifEnCours = false;
+    }
+}
+
+// ========================================
 // 🌐 ROUTES HTTP
 // ========================================
 app.get('/api/health', (req, res) => {
@@ -200,6 +252,7 @@ app.get('/api/health', (req, res) => {
         abonnes: Object.keys(abonnementsPush).length,
         joueurs: Object.keys(joueurs).length,
         classements: Object.keys(classements).length,
+        meta,
         heureAbidjan: getHeureAbidjan()
     });
 });
@@ -233,12 +286,27 @@ app.post('/api/notifier', async (req, res) => {
 });
 
 app.post('/api/test-cron', async (req, res) => {
-    console.log('🧪 Test manuel du cron...');
+    console.log('🧪 Test manuel...');
     const result = await envoyerNotificationATous(
         '🎯 Test notification',
-        'Ceci est un test des notifications automatiques.'
+        'Ceci est un test.'
     );
     res.json({ success: true, ...result });
+});
+
+// Endpoint pour déclencher manuellement la vérif
+app.post('/api/verifier-notifs', async (req, res) => {
+    await verifierNotificationsJour();
+    res.json({ success: true, meta });
+});
+
+// 🧪 Tester un message spécifique : /api/test-message/crush
+app.get('/api/test-message/:type', async (req, res) => {
+    const { type } = req.params;
+    const msg = getMessage(type);
+    console.log(`🧪 Test message "${type}" : ${msg.titre}`);
+    const result = await envoyerNotificationATous(msg.titre, msg.body, '/');
+    res.json({ msg, result });
 });
 
 // ========================================
@@ -280,6 +348,11 @@ io.on('connection', (socket) => {
         io.emit('joueurs_en_ligne', getJoueursEnLigne());
         io.emit('classements', getClassements());
         console.log(`✅ ${pseudo} (🏆 ${joueurs[socket.id].victoires}V)`);
+
+        // 🔔 Vérifier les notifications du jour
+        verifierNotificationsJour().catch(e =>
+            console.error('❌ Erreur notif connexion:', e.message)
+        );
     });
 
     socket.on('mettre_a_jour_score', (data) => {
@@ -375,7 +448,7 @@ io.on('connection', (socket) => {
     });
 
     // ========================================
-    // ⚔️ INVITATION DUEL
+    // ⚔️ INVITATION DUEL (avec notif fun)
     // ========================================
     socket.on('inviter_duel', (data) => {
         const { adversaireId, questions } = data;
@@ -407,10 +480,21 @@ io.on('connection', (socket) => {
             inviteurId: socket.id
         });
 
+        // 🎯 Notif fun pour le duel
+        const messagesDuel = [
+            `⚔️ ${joueur.pseudo} te défie ! T'as peur ou quoi ? 😏`,
+            `🔥 ${joueur.pseudo} veut ta peau en duel. Tu acceptes ?`,
+            `👊 ${joueur.pseudo} t'attend. Le perdant paie le resto 😎`,
+            `💘 ${joueur.pseudo} te lance un défi. Réponds, ne fuis pas !`,
+            `🎯 Duel ! ${joueur.pseudo} vs toi. Ouvre l'app pour voir qui gère.`,
+            `😤 ${joueur.pseudo} se la raconte. Fais-le taire en duel !`
+        ];
+        const notifDuel = messagesDuel[Math.floor(Math.random() * messagesDuel.length)];
+
         envoyerNotification(
             adversaire.pseudo,
-            `⚔️ ${joueur.pseudo} te défie !`,
-            'Ouvre l\'app pour accepter le duel 🎯'
+            '⚔️ Duel en attente',
+            notifDuel
         );
 
         console.log(`📨 ${joueur.pseudo} → ${adversaire.pseudo}`);
@@ -434,10 +518,18 @@ io.on('connection', (socket) => {
                     joueur: adversaire?.pseudo || 'Adversaire'
                 });
 
+                // Notif fun refus
+                const refusMsgs = [
+                    `💔 ${adversaire?.pseudo || 'L\'adversaire'} a refusé. Il a peur 😏`,
+                    `😅 ${adversaire?.pseudo || 'L\'adversaire'} s'est dégonflé !`,
+                    `🚪 ${adversaire?.pseudo || 'L\'adversaire'} a fui le duel…`
+                ];
+                const refusMsg = refusMsgs[Math.floor(Math.random() * refusMsgs.length)];
+
                 envoyerNotification(
                     inviteur.pseudo,
                     '❌ Duel refusé',
-                    `${adversaire?.pseudo || 'L\'adversaire'} a refusé ton invitation.`
+                    refusMsg
                 );
             }
             return;
@@ -455,7 +547,6 @@ io.on('connection', (socket) => {
             questions: invitation.questions,
             scores: { [inviteurId]: 0, [adversaireId]: 0 },
             reponses: { [inviteurId]: 0, [adversaireId]: 0 },
-            // ✅ Suivi des questions déjà répondues pour anti-triche
             dejaRepondu: { [inviteurId]: new Set(), [adversaireId]: new Set() },
             indexQuestion: 0,
             terminee: false,
@@ -485,33 +576,28 @@ io.on('connection', (socket) => {
     });
 
     // ========================================
-    // ✅ VALIDATION SERVEUR DES RÉPONSES DUEL (CORRIGÉ)
+    // ✅ VALIDATION SERVEUR DES RÉPONSES DUEL
     // ========================================
     socket.on('reponse_duel', (data) => {
         const { salleId, indexQuestion, reponse, tempsRestant } = data;
         const salle = salles[salleId];
         if (!salle || salle.terminee) return;
 
-        // Vérifier que le joueur est bien dans cette salle
         if (socket.id !== salle.joueur1 && socket.id !== salle.joueur2) return;
 
-        // Anti-double-réponse sur la même question
         if (!salle.dejaRepondu[socket.id]) {
             salle.dejaRepondu[socket.id] = new Set();
         }
         if (salle.dejaRepondu[socket.id].has(indexQuestion)) return;
         salle.dejaRepondu[socket.id].add(indexQuestion);
 
-        // Récupérer la question depuis le serveur (source de vérité)
         const question = salle.questions[indexQuestion];
         if (!question) return;
 
-        // ✅ Le serveur calcule le score (le client ne peut pas tricher)
         let scoreGagne = 0;
         const bonneReponse = (reponse === question.correct);
 
         if (bonneReponse) {
-            // Bonus de rapidité : max +15 pts (si réponse instantanée)
             const temps = Math.max(0, Math.min(10, tempsRestant || 0));
             const bonus = Math.max(0, Math.floor(temps / 3) * 5);
             scoreGagne = 10 + bonus;
@@ -520,14 +606,12 @@ io.on('connection', (socket) => {
 
         salle.scores[socket.id] = (salle.scores[socket.id] || 0) + scoreGagne;
 
-        // Informer l'adversaire
         const adversaireId = salle.joueur1 === socket.id ? salle.joueur2 : salle.joueur1;
         io.to(adversaireId).emit('adversaire_repondu', {
             adversaireScore: salle.scores[socket.id],
             adversaireBonnes: salle.reponses[socket.id]
         });
 
-        // ✅ Envoyer au client SA propre mise à jour (score autoritaire)
         socket.emit('mon_score_duel', {
             score: salle.scores[socket.id],
             bonnes: salle.reponses[socket.id],
@@ -602,12 +686,13 @@ io.on('connection', (socket) => {
 
             sauvegarderDonnees();
 
+            // 🎯 Notifs de fin de duel fun
             if (gagnantId === salle.joueur1) {
                 envoyerNotification(joueur1.pseudo, '🏆 Victoire !', `Tu as battu ${joueur2.pseudo} ${score1}-${score2} 🎉`);
-                envoyerNotification(joueur2.pseudo, '💔 Défaite', `${joueur1.pseudo} t'a battu ${score2}-${score1}. Revanche ?`);
+                envoyerNotification(joueur2.pseudo, '💔 Défaite', `${joueur1.pseudo} t'a battu ${score2}-${score1}. Revanche ? 😤`);
             } else if (gagnantId === salle.joueur2) {
                 envoyerNotification(joueur2.pseudo, '🏆 Victoire !', `Tu as battu ${joueur1.pseudo} ${score2}-${score1} 🎉`);
-                envoyerNotification(joueur1.pseudo, '💔 Défaite', `${joueur2.pseudo} t'a battu ${score1}-${score2}. Revanche ?`);
+                envoyerNotification(joueur1.pseudo, '💔 Défaite', `${joueur2.pseudo} t'a battu ${score1}-${score2}. Revanche ? 😤`);
             } else {
                 envoyerNotification(joueur1.pseudo, '🤝 Égalité !', `Match nul ${score1}-${score2} contre ${joueur2.pseudo}`);
                 envoyerNotification(joueur2.pseudo, '🤝 Égalité !', `Match nul ${score2}-${score1} contre ${joueur1.pseudo}`);
@@ -709,41 +794,6 @@ io.on('connection', (socket) => {
 });
 
 // ========================================
-// ⏰ CRON : NOTIFICATIONS AUTOMATIQUES 10H & 16H
-// Heure de Côte d'Ivoire (Abidjan, UTC+0)
-// ========================================
-function demarrerCronNotifications() {
-    let derniereNotif10h = null;
-    let derniereNotif16h = null;
-
-    setInterval(async () => {
-        const { heure, minute, jour } = getHeureAbidjan();
-
-        if (heure === 10 && minute === 0 && derniereNotif10h !== jour) {
-            derniereNotif10h = jour;
-            console.log('⏰ [10h Abidjan] Envoi du rappel matinal...');
-            await envoyerNotificationATous(
-                '🎯 Quiz du matin !',
-                'Bonjour ! Un nouveau quiz t\'attend. Viens jouer ! 🚀',
-                '/'
-            );
-        }
-
-        if (heure === 16 && minute === 0 && derniereNotif16h !== jour) {
-            derniereNotif16h = jour;
-            console.log('⏰ [16h Abidjan] Envoi du rappel de l\'après-midi...');
-            await envoyerNotificationATous(
-                '🎯 Quiz de l\'après-midi !',
-                'Nouveau défi disponible. Montre qui est le meilleur ! 🔥',
-                '/'
-            );
-        }
-    }, 60000);
-
-    console.log('⏰ Cron notifications démarré (10h + 16h heure de Côte d\'Ivoire)');
-}
-
-// ========================================
 // 🚀 DÉMARRER
 // ========================================
 const PORT = process.env.PORT || 3000;
@@ -753,9 +803,10 @@ chargerDonnees().then(() => {
         console.log(`🚀 Serveur sur ${PORT}`);
         console.log(`📊 ${Object.keys(classements).length} joueurs chargés`);
         console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push chargés`);
+        console.log(`📅 Meta: 10h=${meta.derniereNotif10h || 'jamais'}, 16h=${meta.derniereNotif16h || 'jamais'}`);
         console.log(`🔔 VAPID configuré: ${VAPID_PUBLIC.substring(0, 20)}...`);
         console.log(`🕐 Heure actuelle Abidjan: ${JSON.stringify(getHeureAbidjan())}`);
-
-        demarrerCronNotifications();
+        console.log('✅ Notifications fun déclenchées à la 1ère connexion après 10h/16h');
+        console.log('🎯 Endpoints test : /api/test-message/matin | crush | potes | argent | vendredi | weekend | relance');
     });
 });
