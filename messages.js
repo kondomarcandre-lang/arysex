@@ -79,7 +79,7 @@ const messages = {
     // ========================================
     vendredi: [
         { titre: "🎉 C'est vendredi !", body: "Pas de date prévu ? Fais-en un ici avec ton crush, en mode duel 😏" },
-        { titre: "🎉 C'est vendredi !", body: "Tu n'as l'argent pour faire sortir ta go ? Vient date ici ! 😏" },
+        { titre: "🎉 C'est vendredi !", body: "Tu n'as pas l'argent pour faire sortir ta go ? Vient date ici ! 😏" },
         { titre: "🍹 Vendredi soir", body: "Lance un duel avec ton/ta chéri(e). Le perdant paie l'apéro 🍻" },
         { titre: "💃 Ambiance week-end", body: "Un quiz, un p'tit défi au crush, et ton vendredi est réussi 😎" },
         { titre: "🎊 Enfin le week-end !", body: "Défie ton crush pour savoir qui organise le prochain date 💕" },
@@ -108,6 +108,11 @@ const messages = {
         { titre: "🔥 Le boss t'attend", body: "Un adversaire veut ta place. Tu vas la défendre ? 💪" },
         { titre: "😏 On parie ?", body: "T'es pas cap de me battre en 10 questions. Allez, prouve-le !" },
         { titre: "👀 Petit rappel", body: "Ton compte t'attend. Et ton classement aussi 😉" }
+    ],
+    
+    special: [
+        { titre: "🎉 C'est vendredi !", body: "Tu n'as pas l'argent pour faire sortir ta go ? Viens date ici ! 😏" },
+        // tu peux en ajouter d'autres ici
     ]
 };
 

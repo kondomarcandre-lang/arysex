@@ -335,6 +335,12 @@ app.get('/api/test-message/:type', async (req, res) => {
     console.log(`🧪 Test message "${type}" : ${msg.titre}`);
     const result = await envoyerNotificationATous(msg.titre, msg.body, '/');
     res.json({ msg, result });
+}); 
+
+app.post('/api/notifier-special', async (req, res) => {
+    const msg = getMessage('special'); // ou en dur si tu préfères
+    const result = await envoyerNotificationATous(msg.titre, msg.body, '/');
+    res.json({ success: true, msg, result });
 });
 
 // 🔧 Endpoint admin pour nettoyer les doublons (à appeler une fois)
