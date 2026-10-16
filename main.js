@@ -1,12 +1,41 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION CORRIGÉE FINALE
-// (duel v2 + notifications persistantes + sync score + sécurité)
+// 🔥 MAIN.JS - VERSION SÉCURISÉE JWT + VALIDATION SERVEUR
 // ========================================
 
 (function () {
     'use strict';
 
     console.log('📄 MAIN.JS - Initialisation...');
+
+    // ========================================
+    // 🔐 AUTHENTIFICATION JWT
+    // ========================================
+    const SERVER_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+        ? 'http://localhost:3000'
+        : 'https://arysex-quiz-duel.onrender.com';
+
+    async function obtenirToken(pseudo) {
+        const res = await fetch(`${SERVER_URL}/api/auth`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pseudo })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Erreur auth');
+        }
+        const data = await res.json();
+        localStorage.setItem('arysex_token', data.token);
+        return data.token;
+    }
+
+    function decoderToken(token) {
+        try {
+            return JSON.parse(atob(token.split('.')[1]));
+        } catch (e) {
+            return null;
+        }
+    }
 
     // ========================================
     // 🔒 SÉCURITÉ : ÉCHAPPEMENT HTML
@@ -28,8 +57,9 @@
         if (!pseudo) return '';
         const trimmed = pseudo.trim();
         if (trimmed.length === 0) return '';
-        // Première lettre maj, le reste minuscule
-        return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+        const nettoye = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 20);
+        if (nettoye.length === 0) return '';
+        return nettoye.charAt(0).toUpperCase() + nettoye.slice(1).toLowerCase();
     }
 
     // ========================================
@@ -226,6 +256,9 @@
     // 🔄 Flag pour éviter la boucle de sync
     let syncScoreEnCours = false;
 
+    // 📊 Indices de réponse déjà donnés pour la question actuelle
+    let dernierIndexChoisi = -1;
+
     // ========================================
     // SAUVEGARDE MODE
     // ========================================
@@ -351,21 +384,13 @@
         if (statsIncorrect) statsIncorrect.textContent = `❌ ${stats.incorrect}`;
 
         if (progressFill) {
-            const total = stats.correct + stats.incorrect + (indexQuestion || 0);
+            const total = stats.correct + stats.incorrect;
             const progress = Math.min(100, (total / 10) * 100);
             progressFill.style.width = `${progress}%`;
         }
 
         if (dailyPlayers) dailyPlayers.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
         if (btnDaily) btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
-
-        if (socket && socket.connected) {
-            // 🔧 On demande au serveur de REMPLACER (mode: 'set')
-            socket.emit('mettre_a_jour_score', {
-                score: scoreTotal,
-                mode: 'set'
-            });
-        }
 
         mettreAJourRang();
     }
@@ -438,6 +463,7 @@
 
         const question = questionsActuelles[indexQuestion];
         reponseDonnee = false;
+        dernierIndexChoisi = -1;
 
         if (zoneTimer) zoneTimer.style.display = 'flex';
         if (timerValue) {
@@ -470,18 +496,31 @@
     }
 
     // ========================================
-    // VÉRIFIER RÉPONSE
+    // VÉRIFIER RÉPONSE (SÉCURISÉ - envoie au serveur)
     // ========================================
     function verifierReponse(indexChoisi) {
         if (reponseDonnee) return;
         reponseDonnee = true;
+        dernierIndexChoisi = indexChoisi;
         arreterTimer();
         SoundManager.click();
 
-        if (zoneTimer) zoneTimer.style.display = 'none';
+        // 🔐 Si connecté, on laisse le serveur valider
+        if (socket && socket.connected && estEnJeu) {
+            socket.emit('solo_repondre', {
+                indexQuestion: indexQuestion,
+                reponse: indexChoisi,
+                tempsRestant: tempsRestant
+            });
+            // La suite se passe dans socket.on('solo_resultat')
+            return;
+        }
 
+        // Fallback hors-ligne (mode dégradé)
         const question = questionsActuelles[indexQuestion];
         const boutons = zoneReponses.querySelectorAll('.btn-reponse');
+
+        if (zoneTimer) zoneTimer.style.display = 'none';
 
         boutons.forEach((btn, idx) => {
             btn.disabled = true;
@@ -498,23 +537,9 @@
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
             serieActuelle++;
             verifierDeblocageDefi();
-
-            const scoreSpan = document.getElementById('scoreTotal');
-            if (scoreSpan) {
-                scoreSpan.classList.remove('pop-score');
-                void scoreSpan.offsetWidth;
-                scoreSpan.classList.add('pop-score');
-            }
         } else if (indexChoisi >= 0) {
             SoundManager.incorrect();
             Haptic.heavy();
-            const questionZone = document.getElementById('questionText');
-            if (questionZone) {
-                questionZone.classList.remove('shake');
-                void questionZone.offsetWidth;
-                questionZone.classList.add('shake');
-                setTimeout(() => questionZone.classList.remove('shake'), 500);
-            }
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].incorrect++;
             serieActuelle = 0;
         }
@@ -522,6 +547,89 @@
         mettreAJourStats();
         sauvegarderPartie();
         sauvegarderDefi();
+
+        setTimeout(() => {
+            indexQuestion++;
+            afficherQuestion();
+        }, 1500);
+    }
+
+    // ========================================
+    // TRAITEMENT RÉSULTAT SERVEUR (SOLO)
+    // ========================================
+    function traiterResultatSolo(data) {
+        const question = questionsActuelles[data.indexQuestion];
+        if (!question) return;
+
+        if (zoneTimer) zoneTimer.style.display = 'none';
+
+        const boutons = zoneReponses.querySelectorAll('.btn-reponse');
+
+        // Désactiver tous les boutons et montrer la bonne réponse
+        boutons.forEach((btn, idx) => {
+            btn.disabled = true;
+            if (idx === question.correct) btn.classList.add('correct');
+        });
+
+        // Montrer en rouge le mauvais choix de l'utilisateur
+        if (!data.correcte && dernierIndexChoisi >= 0 && boutons[dernierIndexChoisi]) {
+            boutons[dernierIndexChoisi].classList.add('incorrect');
+        }
+
+        // Effets
+        if (data.correcte) {
+            SoundManager.correct();
+            Haptic.medium();
+            lancerConfettis();
+
+            const scoreSpan = document.getElementById('scoreTotal');
+            if (scoreSpan) {
+                scoreSpan.classList.remove('pop-score');
+                void scoreSpan.offsetWidth;
+                scoreSpan.classList.add('pop-score');
+            }
+
+            serieActuelle++;
+            verifierDeblocageDefi();
+        } else {
+            SoundManager.incorrect();
+            Haptic.heavy();
+
+            const qz = document.getElementById('questionText');
+            if (qz) {
+                qz.classList.remove('shake');
+                void qz.offsetWidth;
+                qz.classList.add('shake');
+                setTimeout(() => qz.classList.remove('shake'), 500);
+            }
+
+            serieActuelle = 0;
+        }
+
+        // 🔧 Mise à jour du score avec la valeur du SERVEUR
+        const ancienScoreNiveau = scoreNiveau;
+        scoreNiveau = data.scoreTotal;
+
+        // On ajuste le score total en ajoutant les points gagnés (et les bonus déjà comptés)
+        const diff = scoreNiveau - ancienScoreNiveau;
+        scoreTotal += diff;
+
+        // Mise à jour des stats du niveau
+        if (reponsesParNiveau[niveauActuel]) {
+            reponsesParNiveau[niveauActuel].correct = data.bonnes;
+            reponsesParNiveau[niveauActuel].incorrect = data.mauvaises;
+        }
+
+        mettreAJourStats();
+        sauvegarderPartie();
+        sauvegarderDefi();
+
+        // Si c'est la dernière question, demander au serveur d'enregistrer
+        if (data.terminee) {
+            if (socket && socket.connected) {
+                socket.emit('solo_terminer');
+            }
+        }
 
         setTimeout(() => {
             indexQuestion++;
@@ -587,7 +695,7 @@
     }
 
     // ========================================
-    // DÉMARRER NIVEAU
+    // DÉMARRER NIVEAU (SÉCURISÉ - envoie au serveur)
     // ========================================
     async function demarrerNiveau() {
         if (estEnChargement) return;
@@ -612,7 +720,7 @@
             questionsActuelles = genererNiveau(niveauActuel);
 
             if (!questionsActuelles || questionsActuelles.length === 0) {
-                if (questionText) questionText.textContent = "❌ Erreur : Aucune question disponible";
+                if (questionText) questionText.textContent = "❌ Aucune question disponible";
                 if (btnAction) {
                     btnAction.textContent = "🔄 Réessayer";
                     btnAction.disabled = false;
@@ -624,13 +732,9 @@
             indexQuestion = 0;
             scoreNiveau = 0;
             reponseDonnee = false;
-            estEnJeu = true;
+
             if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
             if (profilNiveau) profilNiveau.textContent = niveauActuel;
-            if (btnAction) {
-                btnAction.style.display = "none";
-                btnAction.disabled = false;
-            }
 
             if (questionsActuelles[0]?.categorie && categorieSpan) {
                 categorieSpan.textContent = questionsActuelles[0].categorie;
@@ -640,9 +744,24 @@
                 difficulteSpan.textContent = emojis[questionsActuelles[0].difficulte] || '❓';
             }
 
-            mettreAJourStats();
-            afficherQuestion();
-            sauvegarderPartie();
+            // 🔐 Si connecté, envoyer les questions au serveur
+            if (socket && socket.connected) {
+                socket.emit('solo_demarrer', { questions: questionsActuelles });
+                // Le serveur va répondre par 'solo_pret', puis afficherQuestion()
+            } else {
+                // Mode dégradé hors-ligne
+                console.warn('⚠️ Socket non connecté - mode hors-ligne');
+                estEnJeu = true;
+                if (btnAction) btnAction.style.display = "none";
+                mettreAJourStats();
+                afficherQuestion();
+            }
+
+            estEnJeu = true;
+            if (btnAction) {
+                btnAction.style.display = "none";
+                btnAction.disabled = false;
+            }
 
         } catch (error) {
             console.error('❌ Erreur:', error);
@@ -687,7 +806,7 @@
     }
 
     // ========================================
-    // 🔔 NOTIFICATIONS PUSH - FONCTIONS
+    // 🔔 NOTIFICATIONS PUSH
     // ========================================
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -706,9 +825,6 @@
 
     const VAPID_PUBLIC_KEY = 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
 
-    // ========================================
-    // 🔁 RÉ-ENREGISTRER L'ABONNEMENT PUSH
-    // ========================================
     async function reenregistrerPush() {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
         if (!socket || !socket.connected) return;
@@ -721,13 +837,11 @@
             const sub = await reg.pushManager.getSubscription();
 
             if (sub) {
+                // 🔐 Plus besoin d'envoyer le pseudo : le serveur le sait via le JWT
                 socket.emit('enregistrer_push', {
-                    subscription: sub.toJSON(),
-                    pseudo: pseudo
+                    subscription: sub.toJSON()
                 });
-                console.log('🔁 Abonnement push ré-enregistré pour', pseudo);
-            } else {
-                console.log('ℹ️ Aucun abonnement push existant');
+                console.log('🔁 Abonnement push ré-enregistré');
             }
         } catch (e) {
             console.error('❌ Erreur ré-enregistrement push:', e);
@@ -842,8 +956,8 @@
             if (!pseudo || pseudo.length < 2) {
                 pseudo = 'Joueur';
             }
-            // 🔧 Normalisation
             pseudo = normaliserPseudo(pseudo);
+            if (!pseudo) pseudo = 'Joueur';
             welcomePseudo.value = pseudo;
             try { localStorage.setItem('quiz_pseudo', pseudo); } catch (e) { }
 
@@ -907,15 +1021,13 @@
         }
 
         // ========================================
-        // ✅ BOUTON RETOUR AU CHOIX DU MODE
+        // BOUTON RETOUR AU CHOIX DU MODE
         // ========================================
         const btnRetourMode = document.getElementById('btnRetourMode');
         if (btnRetourMode) {
             btnRetourMode.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
-
-                console.log('🔙 Bouton retour cliqué !');
 
                 arreterTimer();
                 estEnJeu = false;
@@ -933,7 +1045,7 @@
         }
 
         // ========================================
-        // GESTION DES ONGLETS SOLO / DUEL
+        // ONGLETS SOLO / DUEL
         // ========================================
         const tabSolo = document.getElementById('tabSolo');
         const tabDuel = document.getElementById('tabDuel');
@@ -1031,16 +1143,37 @@
         }
 
         if (btnPseudoOk) {
-            btnPseudoOk.addEventListener('click', function () {
+            btnPseudoOk.addEventListener('click', async function () {
                 let nouveauPseudo = inputPseudo.value.trim();
                 if (nouveauPseudo && nouveauPseudo.length >= 2) {
                     nouveauPseudo = normaliserPseudo(nouveauPseudo);
-                    profilNom.textContent = nouveauPseudo;
-                    try { localStorage.setItem('quiz_pseudo', nouveauPseudo); } catch (e) { }
-                    if (modalPseudo) modalPseudo.style.display = 'none';
-                    afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
-                    if (socket) socket.emit('reconnecter', { pseudo: nouveauPseudo });
-                    setTimeout(() => reenregistrerPush(), 500);
+                    if (!nouveauPseudo) {
+                        afficherNotification('❌ Pseudo invalide', 'error');
+                        return;
+                    }
+
+                    // 🔐 Obtenir un nouveau token pour ce pseudo
+                    try {
+                        // Déconnecter l'ancienne socket
+                        if (socket) {
+                            socket.disconnect();
+                            socket = null;
+                        }
+                        // Supprimer l'ancien token
+                        localStorage.removeItem('arysex_token');
+
+                        profilNom.textContent = nouveauPseudo;
+                        try { localStorage.setItem('quiz_pseudo', nouveauPseudo); } catch (e) { }
+
+                        if (modalPseudo) modalPseudo.style.display = 'none';
+                        afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
+
+                        // Reconnecter avec le nouveau pseudo
+                        connecterServeur();
+                        setTimeout(() => reenregistrerPush(), 1500);
+                    } catch (e) {
+                        afficherNotification('❌ Erreur auth: ' + e.message, 'error');
+                    }
                 } else {
                     afficherNotification('❌ Pseudo trop court (minimum 2 caractères)', 'error');
                 }
@@ -1066,33 +1199,55 @@
         }
 
         // ========================================
-        // CONNEXION SOCKET
+        // CONNEXION SOCKET (SÉCURISÉE)
         // ========================================
-        function connecterServeur() {
-            const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-                ? 'http://localhost:3000'
-                : 'https://arysex-quiz-duel.onrender.com';
+        async function connecterServeur() {
+            const pseudoActuel = profilNom.textContent;
 
-            socket = io(serverUrl);
+            let token = localStorage.getItem('arysex_token');
+
+            // Vérifier si le token correspond au pseudo actuel
+            if (token) {
+                const payload = decoderToken(token);
+                if (!payload || payload.pseudo !== pseudoActuel) {
+                    token = null;
+                }
+            }
+
+            if (!token) {
+                try {
+                    token = await obtenirToken(pseudoActuel);
+                } catch (e) {
+                    afficherNotification('❌ Impossible de s\'authentifier', 'error');
+                    console.error('Auth error:', e);
+                    return;
+                }
+            }
+
+            socket = io(SERVER_URL, {
+                auth: { token }
+            });
             window.socket = socket;
 
+            socket.on('connect_error', (err) => {
+                console.error('❌ Connexion refusée:', err.message);
+                if (err.message === 'Token invalide' || err.message === 'Token manquant') {
+                    localStorage.removeItem('arysex_token');
+                    afficherNotification('⚠️ Session expirée, rechargez la page', 'error');
+                }
+            });
+
             socket.on('connect', () => {
-                console.log('🔗 Connecté au serveur de duel');
-                socket.emit('enregistrer', {
-                    pseudo: profilNom.textContent,
-                    niveau: niveauActuel,
-                    score: scoreTotal
-                });
+                console.log('🔗 Connecté au serveur (JWT)');
+                socket.emit('enregistrer', {});
                 setTimeout(() => reenregistrerPush(), 1000);
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
 
-            // 🔄 SYNC SCORE : on récupère le score du serveur s'il est plus grand
             socket.on('classements', (classements) => {
                 afficherClassements(classements);
 
-                // Ne pas sync pendant qu'on joue (pour éviter d'écraser un score en cours)
                 if (estEnJeu || estEnDuel || syncScoreEnCours) return;
 
                 const pseudo = profilNom.textContent;
@@ -1111,6 +1266,28 @@
                 }
             });
 
+            // ====== SOLO ======
+            socket.on('solo_pret', (data) => {
+                console.log(`✅ Solo prêt : ${data.total} questions`);
+                indexQuestion = 0;
+                scoreNiveau = 0;
+                afficherQuestion();
+            });
+
+            socket.on('solo_resultat', (data) => {
+                traiterResultatSolo(data);
+            });
+
+            socket.on('solo_termine', (data) => {
+                console.log(`🏁 Partie terminée : ${data.score} pts`);
+                if (data.nouveauRecord) {
+                    afficherNotification(`🏆 Nouveau record : ${data.score} pts !`, 'success');
+                } else {
+                    afficherNotification(`Partie terminée : ${data.score} pts`, 'success');
+                }
+            });
+
+            // ====== DUEL ======
             socket.on('invitation_refusee', (data) => {
                 afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
                 duelInvitation.style.display = 'none';
@@ -1196,8 +1373,6 @@
                 'serviceWorker' in navigator &&
                 'PushManager' in window;
 
-            console.log('🔔 Notifications supportées:', notifSupportees);
-
             if (!notifSupportees || !btnNotif) {
                 if (btnNotif) btnNotif.style.display = 'none';
                 return;
@@ -1221,15 +1396,9 @@
 
             btnNotif.addEventListener('click', async function () {
                 try {
-                    console.log('🔔 Clic sur bouton notifications');
-
                     let permission = Notification.permission;
                     if (permission !== 'granted') {
-                        console.log('🔔 Demande de permission...');
                         permission = await Notification.requestPermission();
-                        console.log('🔔 Permission:', permission);
-                    } else {
-                        console.log('🔔 Permission déjà accordée');
                     }
 
                     if (permission !== 'granted') {
@@ -1241,29 +1410,22 @@
                     }
 
                     const registration = await navigator.serviceWorker.ready;
-                    console.log('✅ SW prêt:', registration.scope);
 
                     let subscription = await registration.pushManager.getSubscription();
 
                     if (!subscription) {
-                        console.log('📬 Création nouvel abonnement...');
                         subscription = await registration.pushManager.subscribe({
                             userVisibleOnly: true,
                             applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                         });
-                        console.log('✅ Abonnement créé');
-                    } else {
-                        console.log('✅ Abonnement existant trouvé');
                     }
 
                     if (socket && socket.connected) {
+                        // 🔐 Plus besoin du pseudo : le serveur le connaît via JWT
                         socket.emit('enregistrer_push', {
-                            subscription: subscription.toJSON(),
-                            pseudo: profilNom.textContent
+                            subscription: subscription.toJSON()
                         });
-                        console.log('📤 Abonnement envoyé au serveur pour', profilNom.textContent);
                     } else {
-                        console.warn('⚠️ Socket non connecté');
                         afficherNotification('⚠️ Reconnecte-toi et réessaie', 'error');
                         return;
                     }
@@ -1704,13 +1866,6 @@
             sauvegarderPartie();
             sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
-
-            if (socket && socket.connected) {
-                socket.emit('mettre_a_jour_score', {
-                    score: scoreTotal,
-                    mode: 'set'
-                });
-            }
         });
 
         const stylePopIn = document.createElement('style');
