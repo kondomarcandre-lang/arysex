@@ -1,5 +1,5 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION SÉCURISÉE JWT + VALIDATION SERVEUR
+// 🔥 MAIN.JS - Scores séparés par mode (Monde / Afrique)
 // ========================================
 
 (function () {
@@ -38,7 +38,7 @@
     }
 
     // ========================================
-    // 🔒 SÉCURITÉ : ÉCHAPPEMENT HTML
+    // 🔒 SÉCURITÉ
     // ========================================
     function escapeHtml(str) {
         if (str === null || str === undefined) return '';
@@ -50,9 +50,6 @@
             .replace(/'/g, '&#39;');
     }
 
-    // ========================================
-    // 🔧 NORMALISATION PSEUDO
-    // ========================================
     function normaliserPseudo(pseudo) {
         if (!pseudo) return '';
         const trimmed = pseudo.trim();
@@ -253,14 +250,14 @@
     let classementComplet = [];
     let classementAffiche = 3;
 
-    // 🔄 Flag pour éviter la boucle de sync
+    // 🔄 Flag anti-boucle
     let syncScoreEnCours = false;
 
-    // 📊 Indices de réponse déjà donnés pour la question actuelle
+    // 📊 Index choisi pour la question actuelle
     let dernierIndexChoisi = -1;
 
     // ========================================
-    // SAUVEGARDE MODE
+    // SAUVEGARDE PAR MODE (localStorage)
     // ========================================
     function sauvegarderDonneesMode(mode) {
         try {
@@ -280,8 +277,15 @@
                 niveauActuel = parsed.niveau || 1;
                 scoreTotal = parsed.score || 0;
                 questionsDejaPosees = new Set(parsed.questions || []);
+            } else {
+                // Fallback : essayer les anciennes clés
+                const savedNiveau = localStorage.getItem(`quiz_niveau_${mode}`);
+                const savedScore = localStorage.getItem(`quiz_score_${mode}`);
+                niveauActuel = savedNiveau ? parseInt(savedNiveau, 10) : 1;
+                scoreTotal = savedScore ? parseInt(savedScore, 10) : 0;
+                questionsDejaPosees = new Set();
             }
-            console.log(`📊 Données chargées pour ${mode}: niveau=${niveauActuel}, score=${scoreTotal}`);
+            console.log(`📊 Données chargées [${mode}]: niveau=${niveauActuel}, score=${scoreTotal}`);
         } catch (e) { }
     }
 
@@ -296,12 +300,10 @@
 
     function chargerPartie() {
         try {
-            const savedNiveau = localStorage.getItem('quiz_niveau');
-            const savedScore = localStorage.getItem('quiz_score');
             const savedMode = localStorage.getItem('quiz_mode');
-            if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
-            if (savedScore) scoreTotal = parseInt(savedScore, 10);
-            if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) modeActuel = savedMode;
+            if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) {
+                modeActuel = savedMode;
+            }
             chargerDonneesMode(modeActuel);
             mettreAJourInterface();
         } catch (e) { }
@@ -314,7 +316,7 @@
     }
 
     // ========================================
-    // VÉRIFICATION DÉFI
+    // VÉRIF DÉFI
     // ========================================
     function verifierDeblocageDefi() {
         if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
@@ -415,7 +417,7 @@
     }
 
     // ========================================
-    // TIMER SOLO
+    // TIMER
     // ========================================
     function demarrerTimer() {
         arreterTimer();
@@ -496,7 +498,7 @@
     }
 
     // ========================================
-    // VÉRIFIER RÉPONSE (SÉCURISÉ - envoie au serveur)
+    // VÉRIFIER RÉPONSE
     // ========================================
     function verifierReponse(indexChoisi) {
         if (reponseDonnee) return;
@@ -505,21 +507,18 @@
         arreterTimer();
         SoundManager.click();
 
-        // 🔐 Si connecté, on laisse le serveur valider
         if (socket && socket.connected && estEnJeu) {
             socket.emit('solo_repondre', {
                 indexQuestion: indexQuestion,
                 reponse: indexChoisi,
                 tempsRestant: tempsRestant
             });
-            // La suite se passe dans socket.on('solo_resultat')
             return;
         }
 
-        // Fallback hors-ligne (mode dégradé)
+        // Fallback hors-ligne
         const question = questionsActuelles[indexQuestion];
         const boutons = zoneReponses.querySelectorAll('.btn-reponse');
-
         if (zoneTimer) zoneTimer.style.display = 'none';
 
         boutons.forEach((btn, idx) => {
@@ -555,7 +554,7 @@
     }
 
     // ========================================
-    // TRAITEMENT RÉSULTAT SERVEUR (SOLO)
+    // TRAITEMENT RÉSULTAT SERVEUR
     // ========================================
     function traiterResultatSolo(data) {
         const question = questionsActuelles[data.indexQuestion];
@@ -565,18 +564,15 @@
 
         const boutons = zoneReponses.querySelectorAll('.btn-reponse');
 
-        // Désactiver tous les boutons et montrer la bonne réponse
         boutons.forEach((btn, idx) => {
             btn.disabled = true;
             if (idx === question.correct) btn.classList.add('correct');
         });
 
-        // Montrer en rouge le mauvais choix de l'utilisateur
         if (!data.correcte && dernierIndexChoisi >= 0 && boutons[dernierIndexChoisi]) {
             boutons[dernierIndexChoisi].classList.add('incorrect');
         }
 
-        // Effets
         if (data.correcte) {
             SoundManager.correct();
             Haptic.medium();
@@ -606,15 +602,11 @@
             serieActuelle = 0;
         }
 
-        // 🔧 Mise à jour du score avec la valeur du SERVEUR
         const ancienScoreNiveau = scoreNiveau;
         scoreNiveau = data.scoreTotal;
-
-        // On ajuste le score total en ajoutant les points gagnés (et les bonus déjà comptés)
         const diff = scoreNiveau - ancienScoreNiveau;
         scoreTotal += diff;
 
-        // Mise à jour des stats du niveau
         if (reponsesParNiveau[niveauActuel]) {
             reponsesParNiveau[niveauActuel].correct = data.bonnes;
             reponsesParNiveau[niveauActuel].incorrect = data.mauvaises;
@@ -624,7 +616,6 @@
         sauvegarderPartie();
         sauvegarderDefi();
 
-        // Si c'est la dernière question, demander au serveur d'enregistrer
         if (data.terminee) {
             if (socket && socket.connected) {
                 socket.emit('solo_terminer');
@@ -695,7 +686,7 @@
     }
 
     // ========================================
-    // DÉMARRER NIVEAU (SÉCURISÉ - envoie au serveur)
+    // DÉMARRER NIVEAU
     // ========================================
     async function demarrerNiveau() {
         if (estEnChargement) return;
@@ -744,12 +735,13 @@
                 difficulteSpan.textContent = emojis[questionsActuelles[0].difficulte] || '❓';
             }
 
-            // 🔐 Si connecté, envoyer les questions au serveur
             if (socket && socket.connected) {
-                socket.emit('solo_demarrer', { questions: questionsActuelles });
-                // Le serveur va répondre par 'solo_pret', puis afficherQuestion()
+                socket.emit('solo_demarrer', {
+                    questions: questionsActuelles,
+                    mode: modeActuel,
+                    niveau: niveauActuel
+                });
             } else {
-                // Mode dégradé hors-ligne
                 console.warn('⚠️ Socket non connecté - mode hors-ligne');
                 estEnJeu = true;
                 if (btnAction) btnAction.style.display = "none";
@@ -806,7 +798,7 @@
     }
 
     // ========================================
-    // 🔔 NOTIFICATIONS PUSH
+    // PUSH
     // ========================================
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
@@ -837,7 +829,6 @@
             const sub = await reg.pushManager.getSubscription();
 
             if (sub) {
-                // 🔐 Plus besoin d'envoyer le pseudo : le serveur le sait via le JWT
                 socket.emit('enregistrer_push', {
                     subscription: sub.toJSON()
                 });
@@ -893,7 +884,6 @@
         const invitationNom = document.getElementById('invitationNom');
         const btnAnnulerDuel = document.getElementById('btnAnnulerDuel');
         const duelStatut = document.getElementById('duelStatut');
-        const duelStatutTexte = document.getElementById('duelStatutTexte');
         const duelOverlay = document.getElementById('duelOverlay');
         const btnFermerDuel = document.getElementById('btnFermerDuel');
         const btnQuitterDuel = document.getElementById('btnQuitterDuel');
@@ -929,20 +919,28 @@
             sauvegarderDonneesMode(modeActuel);
             modeActuel = mode;
 
-            if (btnModeMonde && btnModeAfrique) {
-                btnModeMonde.classList.toggle('active', mode === 'monde');
-                btnModeAfrique.classList.toggle('active', mode === 'afrique');
-            }
-
             chargerDonneesMode(mode);
             serieActuelle = 0;
             palierActuel = 10;
             paliersAtteints = [];
 
+            if (btnModeMonde && btnModeAfrique) {
+                btnModeMonde.classList.toggle('active', mode === 'monde');
+                btnModeAfrique.classList.toggle('active', mode === 'afrique');
+            }
+
             mettreAJourInterface();
+            mettreAJourStats();
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
+
+            // 🔄 Re-sync serveur selon le nouveau mode
+            if (socket && socket.connected) {
+                socket.emit('enregistrer', { mode });
+                socket.emit('demander_joueurs');
+                socket.emit('demander_classements');
+            }
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
@@ -953,9 +951,7 @@
         // ========================================
         function lancerLeJeu() {
             let pseudo = welcomePseudo.value.trim();
-            if (!pseudo || pseudo.length < 2) {
-                pseudo = 'Joueur';
-            }
+            if (!pseudo || pseudo.length < 2) pseudo = 'Joueur';
             pseudo = normaliserPseudo(pseudo);
             if (!pseudo) pseudo = 'Joueur';
             welcomePseudo.value = pseudo;
@@ -981,8 +977,11 @@
                 dailyDate.textContent = date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
             }
 
-            if (btnModeMonde) btnModeMonde.classList.add('active');
-            if (btnModeAfrique) btnModeAfrique.classList.remove('active');
+            // Met les boutons mode en cohérence avec le mode sauvegardé
+            if (btnModeMonde && btnModeAfrique) {
+                btnModeMonde.classList.toggle('active', modeActuel === 'monde');
+                btnModeAfrique.classList.toggle('active', modeActuel === 'afrique');
+            }
 
             connecterServeur();
             initialiserNotifications();
@@ -998,7 +997,7 @@
         }
 
         // ========================================
-        // BOUTON COMMENCER LA PARTIE (solo)
+        // BOUTON COMMENCER
         // ========================================
         const btnLancerPartie = document.getElementById('btnLancerPartie');
         if (btnLancerPartie) {
@@ -1021,7 +1020,7 @@
         }
 
         // ========================================
-        // BOUTON RETOUR AU CHOIX DU MODE
+        // RETOUR MODE
         // ========================================
         const btnRetourMode = document.getElementById('btnRetourMode');
         if (btnRetourMode) {
@@ -1152,14 +1151,11 @@
                         return;
                     }
 
-                    // 🔐 Obtenir un nouveau token pour ce pseudo
                     try {
-                        // Déconnecter l'ancienne socket
                         if (socket) {
                             socket.disconnect();
                             socket = null;
                         }
-                        // Supprimer l'ancien token
                         localStorage.removeItem('arysex_token');
 
                         profilNom.textContent = nouveauPseudo;
@@ -1168,7 +1164,6 @@
                         if (modalPseudo) modalPseudo.style.display = 'none';
                         afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
 
-                        // Reconnecter avec le nouveau pseudo
                         connecterServeur();
                         setTimeout(() => reenregistrerPush(), 1500);
                     } catch (e) {
@@ -1199,14 +1194,13 @@
         }
 
         // ========================================
-        // CONNEXION SOCKET (SÉCURISÉE)
+        // CONNEXION SOCKET
         // ========================================
         async function connecterServeur() {
             const pseudoActuel = profilNom.textContent;
 
             let token = localStorage.getItem('arysex_token');
 
-            // Vérifier si le token correspond au pseudo actuel
             if (token) {
                 const payload = decoderToken(token);
                 if (!payload || payload.pseudo !== pseudoActuel) {
@@ -1239,8 +1233,33 @@
 
             socket.on('connect', () => {
                 console.log('🔗 Connecté au serveur (JWT)');
-                socket.emit('enregistrer', {});
+                socket.emit('enregistrer', { mode: modeActuel });
                 setTimeout(() => reenregistrerPush(), 1000);
+            });
+
+            // 🔑 Profil perso (les 2 modes)
+            socket.on('mon_profil', (profil) => {
+                console.log('👤 Profil reçu :', profil);
+
+                try {
+                    localStorage.setItem('quiz_score_monde', profil.soloScoreMonde);
+                    localStorage.setItem('quiz_score_afrique', profil.soloScoreAfrique);
+                    localStorage.setItem('quiz_niveau_monde', profil.niveauMonde);
+                    localStorage.setItem('quiz_niveau_afrique', profil.niveauAfrique);
+                } catch (e) { }
+
+                // Met à jour l'affichage selon le mode actif
+                if (modeActuel === 'afrique') {
+                    scoreTotal = profil.soloScoreAfrique;
+                    niveauActuel = profil.niveauAfrique;
+                } else {
+                    scoreTotal = profil.soloScoreMonde;
+                    niveauActuel = profil.niveauMonde;
+                }
+
+                sauvegarderPartie();
+                mettreAJourInterface();
+                mettreAJourStats();
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
@@ -1253,11 +1272,19 @@
                 const pseudo = profilNom.textContent;
                 const monEntree = classements.find(c => c.pseudo === pseudo);
 
-                if (monEntree && monEntree.soloScore > 0) {
-                    if (monEntree.soloScore > scoreTotal) {
+                if (monEntree) {
+                    const scoreServeur = modeActuel === 'afrique'
+                        ? (monEntree.soloScoreAfrique || 0)
+                        : (monEntree.soloScoreMonde || 0);
+                    const niveauServeur = modeActuel === 'afrique'
+                        ? (monEntree.niveauAfrique || 1)
+                        : (monEntree.niveauMonde || 1);
+
+                    if (scoreServeur !== scoreTotal || niveauServeur !== niveauActuel) {
                         syncScoreEnCours = true;
-                        console.log(`🔄 Sync serveur → local : ${scoreTotal} → ${monEntree.soloScore}`);
-                        scoreTotal = monEntree.soloScore;
+                        console.log(`🔄 Sync [${modeActuel}] : score ${scoreTotal}→${scoreServeur}, niveau ${niveauActuel}→${niveauServeur}`);
+                        scoreTotal = scoreServeur;
+                        niveauActuel = niveauServeur;
                         sauvegarderPartie();
                         mettreAJourStats();
                         mettreAJourInterface();
@@ -1268,7 +1295,7 @@
 
             // ====== SOLO ======
             socket.on('solo_pret', (data) => {
-                console.log(`✅ Solo prêt : ${data.total} questions`);
+                console.log(`✅ Solo prêt [${data.mode}] : ${data.total} questions`);
                 indexQuestion = 0;
                 scoreNiveau = 0;
                 afficherQuestion();
@@ -1279,11 +1306,18 @@
             });
 
             socket.on('solo_termine', (data) => {
-                console.log(`🏁 Partie terminée : ${data.score} pts`);
-                if (data.nouveauRecord) {
-                    afficherNotification(`🏆 Nouveau record : ${data.score} pts !`, 'success');
+                console.log(`🏁 Partie terminée [${data.mode}] : +${data.scorePartie} pts (total ${data.scoreTotal})`);
+
+                if (data.niveauChange) {
+                    afficherNotification(`🎉 Niveau ${data.niveau} atteint dans ${data.mode} !`, 'success');
                 } else {
-                    afficherNotification(`Partie terminée : ${data.score} pts`, 'success');
+                    afficherNotification(`+${data.scorePartie} pts ! (total ${data.scoreTotal})`, 'success');
+                }
+
+                if (data.mode === modeActuel) {
+                    niveauActuel = data.niveau;
+                    scoreTotal = data.scoreTotal;
+                    mettreAJourInterface();
                 }
             });
 
@@ -1363,7 +1397,7 @@
         }
 
         // ========================================
-        // 🔔 INITIALISER NOTIFICATIONS
+        // NOTIFICATIONS
         // ========================================
         function initialiserNotifications() {
             const btnNotif = document.getElementById('btnNotif');
@@ -1421,7 +1455,6 @@
                     }
 
                     if (socket && socket.connected) {
-                        // 🔐 Plus besoin du pseudo : le serveur le connaît via JWT
                         socket.emit('enregistrer_push', {
                             subscription: subscription.toJSON()
                         });
@@ -1464,11 +1497,15 @@
                 return;
             }
 
-            duelListe.innerHTML = joueurs.map(j => `
+            duelListe.innerHTML = joueurs.map(j => {
+                const modeJoueur = j.mode || 'monde';
+                const emoji = modeJoueur === 'afrique' ? '🌍' : '🌎';
+
+                return `
                 <div class="duel-item">
                     <div>
                         <div class="duel-pseudo">${escapeHtml(j.pseudo)}</div>
-                        <div class="duel-infos">Niv. ${j.niveau} · ⭐ ${j.score} pts</div>
+                        <div class="duel-infos">${emoji} Niv. ${j.niveau} · ⭐ ${j.score} pts</div>
                     </div>
                     ${estEnDuel ? '<span class="duel-statut">⚔️ En duel</span>' : `
                         <button class="btn-defier" data-joueur-id="${escapeHtml(j.id)}">
@@ -1476,7 +1513,8 @@
                         </button>
                     `}
                 </div>
-            `).join('');
+            `;
+            }).join('');
 
             duelListe.querySelectorAll('.btn-defier').forEach(btn => {
                 btn.addEventListener('click', () => {
@@ -1545,7 +1583,7 @@
         }
 
         // ========================================
-        // MODAL INVITATION - BOUTONS
+        // INVITATION MODAL
         // ========================================
         if (btnAccepterDuel) {
             btnAccepterDuel.onclick = function () {
@@ -1574,7 +1612,7 @@
         }
 
         // ========================================
-        // AFFICHER QUESTION DUEL
+        // QUESTION DUEL
         // ========================================
         function afficherQuestionDuel(index) {
             if (index >= duelQuestions.length) {
@@ -1663,7 +1701,7 @@
         }
 
         // ========================================
-        // FIN DUEL - AFFICHAGE
+        // FIN DUEL
         // ========================================
         function terminerDuelAffichage(data) {
             if (duelTimerInterval) clearInterval(duelTimerInterval);
@@ -1700,9 +1738,6 @@
             duelReponses2.textContent = `✅ ${data.joueur2.reponses}`;
         }
 
-        // ========================================
-        // QUITTER DUEL
-        // ========================================
         function quitterDuel() {
             if (duelTimerInterval) clearInterval(duelTimerInterval);
             estEnDuel = false;
@@ -1732,7 +1767,8 @@
 
             let affichage = classements;
             if (tabClassementActif === 'personnel') {
-                affichage = [...classements].sort((a, b) => (b.soloScore || 0) - (a.soloScore || 0));
+                const cle = modeActuel === 'afrique' ? 'soloScoreAfrique' : 'soloScoreMonde';
+                affichage = [...classements].sort((a, b) => (b[cle] || 0) - (a[cle] || 0));
             } else {
                 affichage = [...classements].sort((a, b) => (b.victoires || 0) - (a.victoires || 0));
             }
@@ -1751,6 +1787,10 @@
                 else if (rank === 2) { rankClass = 'silver'; medal = '🥈'; }
                 else if (rank === 3) { rankClass = 'bronze'; medal = '🥉'; }
 
+                const scorePersonnel = modeActuel === 'afrique'
+                    ? (j.soloScoreAfrique || 0)
+                    : (j.soloScoreMonde || 0);
+
                 html += `
                     <div class="classement-item">
                         <span class="rank ${rankClass}">${medal}</span>
@@ -1761,7 +1801,7 @@
                                 <span class="defaites">💔 ${j.defaites || 0}</span>
                                 <span class="winrate">📊 ${j.winRate || 0}%</span>
                             ` : `
-                                <span>⭐ ${j.soloScore || 0}</span>
+                                <span>⭐ ${scorePersonnel}</span>
                             `}
                         </div>
                     </div>
@@ -1781,9 +1821,6 @@
             }
         }
 
-        // ========================================
-        // BOUTON VOIR PLUS
-        // ========================================
         const btnVoirPlus = document.getElementById('btnVoirPlus');
         if (btnVoirPlus) {
             btnVoirPlus.addEventListener('click', function () {
@@ -1792,9 +1829,6 @@
             });
         }
 
-        // ========================================
-        // BOUTONS DUEL
-        // ========================================
         if (btnDuel) {
             btnDuel.addEventListener('click', function () {
                 if (socket) {
@@ -1814,9 +1848,7 @@
         if (btnFermerDuel) btnFermerDuel.addEventListener('click', quitterDuel);
         if (btnQuitterDuel) btnQuitterDuel.addEventListener('click', quitterDuel);
 
-        // ========================================
-        // ONGLETS CLASSEMENT
-        // ========================================
+        // Onglets classement
         classementTabs.forEach(tab => {
             tab.addEventListener('click', function () {
                 classementTabs.forEach(t => t.classList.remove('active'));
@@ -1827,16 +1859,12 @@
             });
         });
 
-        // ========================================
-        // SONS BOUTONS
-        // ========================================
+        // Sons boutons
         document.querySelectorAll('button').forEach(btn => {
             btn.addEventListener('click', () => SoundManager.click());
         });
 
-        // ========================================
-        // INIT FINALE
-        // ========================================
+        // Init finale
         const savedPseudo = localStorage.getItem('quiz_pseudo');
         if (savedPseudo && savedPseudo.trim().length > 0 && welcomePseudo) {
             welcomePseudo.value = savedPseudo;
@@ -1859,9 +1887,6 @@
         if (duelContentInit) duelContentInit.style.display = 'none';
         if (zoneSelectionModeInit) zoneSelectionModeInit.style.display = 'flex';
 
-        // ========================================
-        // SAUVEGARDE AVANT FERMETURE
-        // ========================================
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
             sauvegarderDonneesMode(modeActuel);
