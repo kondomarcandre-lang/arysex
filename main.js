@@ -1,5 +1,5 @@
 // ========================================
-// 🔥 MAIN.JS - Score unique (retour version simple)
+// 🔥 MAIN.JS - Score unique + sync serveur temps réel
 // ========================================
 
 (function () {
@@ -219,7 +219,7 @@
     let reponseDonnee = false;
     let indiceUtilise = false;
     let estEnChargement = false;
-    let modeActuel = 'monde';  // sert uniquement à choisir le paquet de questions
+    let modeActuel = 'monde';
     let scoreTotal = 0;
     let niveauActuel = 1;
     let questionsDejaPosees = new Set();
@@ -255,6 +255,9 @@
 
     // 📊 Index choisi pour la question actuelle
     let dernierIndexChoisi = -1;
+
+    // 🔥 Anti-spam : dernière valeur envoyée au serveur
+    let dernierScoreEnvoye = -1;
 
     // ========================================
     // SAUVEGARDE
@@ -293,6 +296,19 @@
     }
 
     // ========================================
+    // 🔥 SYNC SCORE AU SERVEUR
+    // ========================================
+    function syncScoreServeur() {
+        if (!socket || !socket.connected) return;
+        if (scoreTotal === dernierScoreEnvoye) return;
+        if (!Number.isFinite(scoreTotal)) return;
+
+        dernierScoreEnvoye = scoreTotal;
+        socket.emit('solo_maj_score', { scoreTotal });
+        console.log(`📤 Sync serveur : ${scoreTotal} pts`);
+    }
+
+    // ========================================
     // VÉRIF DÉFI
     // ========================================
     function verifierDeblocageDefi() {
@@ -306,6 +322,8 @@
             palierActuel += PALIER_SUIVANT;
             sauvegarderDefi();
             mettreAJourStats();
+            // 🔥 Sync serveur
+            syncScoreServeur();
             return true;
         }
         return false;
@@ -513,6 +531,8 @@
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
             serieActuelle++;
             verifierDeblocageDefi();
+            // 🔥 Sync serveur
+            syncScoreServeur();
         } else if (indexChoisi >= 0) {
             SoundManager.incorrect();
             Haptic.heavy();
@@ -593,6 +613,9 @@
         sauvegarderPartie();
         sauvegarderDefi();
 
+        // 🔥 Sync serveur à chaque réponse
+        syncScoreServeur();
+
         if (data.terminee) {
             if (socket && socket.connected) {
                 socket.emit('solo_terminer');
@@ -634,6 +657,8 @@
             sauvegarderPartie();
             sauvegarderDefi();
             mettreAJourStats();
+            // 🔥 Sync serveur même si échec (score déjà gagné)
+            syncScoreServeur();
             return;
         }
 
@@ -660,6 +685,9 @@
         sauvegarderPartie();
         sauvegarderDefi();
         mettreAJourStats();
+
+        // 🔥 Sync serveur après la fin du niveau
+        syncScoreServeur();
     }
 
     // ========================================
@@ -887,7 +915,7 @@
         const classementTabs = document.querySelectorAll('.classement-tab');
 
         // ========================================
-        // CHANGER MODE (change juste le paquet de questions, PAS le score)
+        // CHANGER MODE
         // ========================================
         function changerMode(mode) {
             if (estEnChargement) return;
@@ -900,8 +928,6 @@
                 btnModeAfrique.classList.toggle('active', mode === 'afrique');
             }
 
-            // On ne touche PAS au score ni au niveau
-            // On reset juste la série de défi du jour
             serieActuelle = 0;
             palierActuel = 10;
             paliersAtteints = [];
@@ -999,6 +1025,9 @@
                 estEnJeu = false;
                 estEnChargement = false;
 
+                // 🔥 Sync finale avant de quitter
+                syncScoreServeur();
+
                 const mainGameEl = document.getElementById('mainGame');
                 if (mainGameEl) mainGameEl.style.display = 'none';
 
@@ -1038,6 +1067,8 @@
                 soloContent.classList.remove('active');
                 soloContent.style.display = 'none';
                 if (socket) {
+                    // 🔥 Sync avant d'afficher le classement
+                    syncScoreServeur();
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
                 }
@@ -1208,17 +1239,31 @@
             socket.on('mon_profil', (profil) => {
                 console.log('👤 Profil reçu :', profil);
 
-                // 🔄 Le serveur est la source de vérité : on écrase le local
-                if (typeof profil.soloScore === 'number') {
-                    scoreTotal = profil.soloScore;
+                const scoreServeur = profil.soloScore || 0;
+                const niveauServeur = profil.niveau || 1;
+
+                // 🔥 On prend le MAX entre local et serveur
+                if (scoreServeur > scoreTotal) {
+                    scoreTotal = scoreServeur;
+                    dernierScoreEnvoye = scoreServeur;
+                } else if (scoreTotal > scoreServeur) {
+                    // Le local est en avance → on pousse au serveur
+                    syncScoreServeur();
                 }
-                if (typeof profil.niveau === 'number') {
-                    niveauActuel = profil.niveau;
+
+                if (niveauServeur > niveauActuel) {
+                    niveauActuel = niveauServeur;
                 }
 
                 sauvegarderPartie();
                 mettreAJourInterface();
                 mettreAJourStats();
+            });
+
+            // Confirmation de mise à jour du score
+            socket.on('solo_score_maj', (data) => {
+                console.log(`✅ Score confirmé par serveur : ${data.scoreTotal} pts`);
+                dernierScoreEnvoye = data.scoreTotal;
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
@@ -1235,14 +1280,22 @@
                     const scoreServeur = monEntree.soloScore || 0;
                     const niveauServeur = monEntree.niveau || 1;
 
-                    if (scoreServeur !== scoreTotal || niveauServeur !== niveauActuel) {
+                    if (scoreServeur > scoreTotal) {
+                        // Le serveur est en avance → on adopte sa valeur
                         syncScoreEnCours = true;
-                        console.log(`🔄 Sync : score ${scoreTotal}→${scoreServeur}, niveau ${niveauActuel}→${niveauServeur}`);
+                        console.log(`🔄 Sync serveur → client : ${scoreTotal} → ${scoreServeur}`);
                         scoreTotal = scoreServeur;
                         niveauActuel = niveauServeur;
+                        dernierScoreEnvoye = scoreServeur;
                         sauvegarderPartie();
                         mettreAJourStats();
                         mettreAJourInterface();
+                        setTimeout(() => { syncScoreEnCours = false; }, 2000);
+                    } else if (scoreTotal > scoreServeur && socket && socket.connected) {
+                        // Le local est en avance → on pousse au serveur
+                        syncScoreEnCours = true;
+                        console.log(`🔄 Sync client → serveur : ${scoreServeur} → ${scoreTotal}`);
+                        syncScoreServeur();
                         setTimeout(() => { syncScoreEnCours = false; }, 2000);
                     }
                 }
@@ -1269,11 +1322,21 @@
                     afficherNotification(`+${data.scorePartie} pts ! (total ${data.scoreTotal})`, 'success');
                 }
 
-                niveauActuel = data.niveau;
-                scoreTotal = data.scoreTotal;
+                // 🔥 On prend le MAX : le local peut être plus à jour
+                if (data.scoreTotal > scoreTotal) {
+                    scoreTotal = data.scoreTotal;
+                }
+                if (data.niveau > niveauActuel) {
+                    niveauActuel = data.niveau;
+                }
+                dernierScoreEnvoye = data.scoreTotal;
+
                 mettreAJourInterface();
                 mettreAJourStats();
                 sauvegarderPartie();
+
+                // Sync finale
+                syncScoreServeur();
             });
 
             // ====== DUEL ======
@@ -1674,6 +1737,8 @@
                 scoreTotal += 30;
                 sauvegarderPartie();
                 mettreAJourStats();
+                // 🔥 Sync serveur (bonus victoire duel)
+                syncScoreServeur();
                 setTimeout(() => afficherNotification('🎉 Vous avez gagné le duel ! +30 pts', 'success'), 500);
             } else {
                 duelGagnant.textContent = `👏 ${data.gagnant} a gagné !`;
@@ -1777,6 +1842,8 @@
         if (btnDuel) {
             btnDuel.addEventListener('click', function () {
                 if (socket) {
+                    // 🔥 Sync avant de demander
+                    syncScoreServeur();
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
                 }
@@ -1800,6 +1867,8 @@
                 this.classList.add('active');
                 tabClassementActif = this.dataset.tab;
                 classementAffiche = 3;
+                // 🔥 Sync avant de demander
+                syncScoreServeur();
                 if (socket) socket.emit('demander_classements');
             });
         });
@@ -1835,7 +1904,18 @@
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
             sauvegarderDefi();
+            // 🔥 Sync finale (peut ne pas aboutir, mais on essaie)
+            if (socket && socket.connected) {
+                socket.emit('solo_maj_score', { scoreTotal });
+            }
         });
+
+        // 🔥 Sync périodique toutes les 30s (sécurité)
+        setInterval(() => {
+            if (estEnJeu && socket && socket.connected) {
+                syncScoreServeur();
+            }
+        }, 30000);
 
         const stylePopIn = document.createElement('style');
         stylePopIn.textContent = `

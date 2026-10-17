@@ -568,6 +568,56 @@ io.on('connection', (socket) => {
         });
     });
 
+    // ====== SOLO : MISE À JOUR SCORE (temps réel) ======
+    // 🔥 NOUVEAU : permet au client de pousser son score à tout moment
+    socket.on('solo_maj_score', (data) => {
+        const joueur = joueurs[socket.id];
+        if (!joueur) return;
+        if (!data || typeof data.scoreTotal !== 'number') return;
+        if (!Number.isFinite(data.scoreTotal)) return;
+
+        // Créer l'entrée si elle n'existe pas
+        if (!classements[joueur.pseudo]) {
+            classements[joueur.pseudo] = {
+                victoires: 0, defaites: 0, egalites: 0,
+                parties: 0, meilleurScore: 0,
+                soloScore: 0, niveau: 1
+            };
+        }
+
+        const stats = classements[joueur.pseudo];
+        const ancien = stats.soloScore || 0;
+        const nouveauScore = Math.max(0, Math.floor(data.scoreTotal));
+
+        // 🛡️ Anti-triche basique : on refuse un saut trop important
+        if (nouveauScore - ancien > 5000) {
+            console.warn(`🚨 ${joueur.pseudo} : saut suspect (${ancien} → ${nouveauScore}) — ignoré`);
+            return;
+        }
+
+        // ⚠️ On ne descend JAMAIS (évite les régressions)
+        if (nouveauScore <= ancien) {
+            return;
+        }
+
+        stats.soloScore = nouveauScore;
+        stats.niveau = calculerNiveau(nouveauScore);
+        joueur.score = nouveauScore;
+        joueur.niveau = stats.niveau;
+
+        sauvegarderDonnees();
+        io.emit('classements', getClassements());
+        io.emit('joueurs_en_ligne', getJoueursEnLigne());
+
+        // Confirmer au client
+        socket.emit('solo_score_maj', {
+            scoreTotal: nouveauScore,
+            niveau: stats.niveau
+        });
+
+        console.log(`📤 ${joueur.pseudo} : score maj → ${nouveauScore} pts (niv. ${stats.niveau})`);
+    });
+
     // ====== SOLO : TERMINER ======
     socket.on('solo_terminer', () => {
         const joueur = joueurs[socket.id];
