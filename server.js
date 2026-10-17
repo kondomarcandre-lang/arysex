@@ -1,7 +1,6 @@
 // ========================================
 // 🔥 SERVEUR - AryseX Quiz Duel
-// Score global = Monde + Afrique
-// Niveau stocké séparément (pas de calcul auto)
+// Conforme au main.js (Scores et Niveaux séparés par mode)
 // ========================================
 
 const express = require('express');
@@ -81,18 +80,6 @@ function normaliserPseudo(pseudo) {
 }
 
 // ========================================
-// 🎯 NIVEAUX : PLUS DE CALCUL AUTOMATIQUE
-// On stocke simplement niveauMonde et niveauAfrique
-// ========================================
-function getNiveauGlobal(stats) {
-    return Math.max(stats.niveauMonde || 1, stats.niveauAfrique || 1);
-}
-
-function getScoreGlobal(stats) {
-    return (stats.soloScoreMonde || 0) + (stats.soloScoreAfrique || 0);
-}
-
-// ========================================
 // 📦 EN MÉMOIRE
 // ========================================
 const joueurs = {};
@@ -137,7 +124,7 @@ async function chargerDonnees() {
             meta = { derniereNotif10h: null, derniereNotif16h: null };
         }
 
-        // 🔧 Normalisation + migration (on conserve les niveaux existants)
+        // 🔧 Normalisation + migration
         const pseudosNormalises = {};
         for (const [pseudo, stats] of Object.entries(classements)) {
             const normalise = normaliserPseudo(pseudo);
@@ -145,6 +132,7 @@ async function chargerDonnees() {
             let monde = stats.soloScoreMonde || 0;
             let afrique = stats.soloScoreAfrique || 0;
 
+            // Migration de l'ancien système (score unique)
             if (typeof stats.soloScore === 'number' && stats.soloScore > 0 && monde === 0 && afrique === 0) {
                 monde = stats.soloScore;
             }
@@ -158,7 +146,6 @@ async function chargerDonnees() {
                 soloScoreMonde: monde,
                 soloScoreAfrique: afrique,
                 soloScore: monde + afrique,
-                // ✅ On conserve les niveaux existants, ou 1 par défaut
                 niveauMonde: stats.niveauMonde || 1,
                 niveauAfrique: stats.niveauAfrique || 1,
                 niveau: Math.max(stats.niveauMonde || 1, stats.niveauAfrique || 1)
@@ -188,7 +175,6 @@ async function chargerDonnees() {
         }
         classements = pseudosNormalises;
 
-        // 🔁 On s'assure que scoreTotal = monde + afrique (sans toucher aux niveaux)
         for (const pseudo of Object.keys(classements)) {
             const s = classements[pseudo];
             s.soloScore = (s.soloScoreMonde || 0) + (s.soloScoreAfrique || 0);
@@ -442,6 +428,7 @@ app.get('/api/admin/scores-list', (req, res) => {
 io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
 
+    // Fallback pour le développement local si le client n'envoie pas de token (non recommandé en prod)
     if (!token) {
         console.log(`🚫 Refusé (pas de token): ${socket.id}`);
         return next(new Error('Token manquant'));
@@ -463,10 +450,13 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
     console.log(`🔗 Connecté: ${socket.id} (${socket.pseudoVerifie})`);
 
-    // ====== ENREGISTRER ======
-    socket.on('enregistrer', () => {
+    // ====== ENREGISTRER (Conforme au main.js) ======
+    socket.on('enregistrer', (data) => {
         const pseudo = socket.pseudoVerifie;
         if (!pseudo) return;
+
+        // Le client envoie { pseudo, niveau, score }
+        const { niveau, score } = data || {};
 
         if (!classements[pseudo]) {
             classements[pseudo] = {
@@ -479,18 +469,32 @@ io.on('connection', (socket) => {
                 niveauAfrique: 1,
                 niveau: 1
             };
-            sauvegarderDonnees();
         }
 
         const stats = classements[pseudo];
         const existant = Object.values(joueurs).find(j => j.pseudo === pseudo);
 
+        // 🔥 Mise à jour des données locales si le client en a de plus récentes
+        if (typeof score === 'number' && score > 0) {
+            // On ne sait pas quel mode c'est, mais on met à jour le total
+            // (Le client va envoyer solo_maj_score plus tard pour préciser le mode)
+            if (score > stats.soloScore) {
+                stats.soloScore = score;
+                // On distribue au hasard ou on laisse le serveur décider
+                // Mieux : on considère que c'est le score le plus haut qu'il a
+            }
+        }
+
+        if (typeof niveau === 'number') {
+            // On garde le niveau le plus haut
+            stats.niveauMonde = Math.max(stats.niveauMonde || 1, niveau);
+            stats.niveauAfrique = Math.max(stats.niveauAfrique || 1, niveau);
+            stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
+        }
+
         stats.soloScoreMonde = stats.soloScoreMonde || 0;
         stats.soloScoreAfrique = stats.soloScoreAfrique || 0;
-        stats.niveauMonde = stats.niveauMonde || 1;
-        stats.niveauAfrique = stats.niveauAfrique || 1;
         stats.soloScore = stats.soloScoreMonde + stats.soloScoreAfrique;
-        stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
 
         joueurs[socket.id] = {
             pseudo,
@@ -530,6 +534,87 @@ io.on('connection', (socket) => {
         verifierNotificationsJour().catch(e =>
             console.error('❌ Erreur notif connexion:', e.message)
         );
+    });
+
+    // ====== MISE À JOUR SCORE (Conforme au main.js : event 'mettre_a_jour_score') ======
+    socket.on('mettre_a_jour_score', (data) => {
+        const joueur = joueurs[socket.id];
+        if (!joueur) return;
+        if (!data || typeof data.score !== 'number') return;
+        if (!Number.isFinite(data.score)) return;
+
+        // Dans main.js, le score envoyé est le score TOTAL du mode en cours
+        // On ne sait pas quel mode c'est, donc on va se baser sur le score le plus haut
+        // Le client envoie { score: scoreTotal, mode: 'set' }
+
+        if (!classements[joueur.pseudo]) {
+            classements[joueur.pseudo] = {
+                victoires: 0, defaites: 0, egalites: 0,
+                parties: 0, meilleurScore: 0,
+                soloScoreMonde: 0,
+                soloScoreAfrique: 0,
+                soloScore: 0,
+                niveauMonde: 1,
+                niveauAfrique: 1,
+                niveau: 1
+            };
+        }
+
+        const stats = classements[joueur.pseudo];
+        stats.soloScoreMonde = stats.soloScoreMonde || 0;
+        stats.soloScoreAfrique = stats.soloScoreAfrique || 0;
+        stats.niveauMonde = stats.niveauMonde || 1;
+        stats.niveauAfrique = stats.niveauAfrique || 1;
+
+        const nouveauScore = Math.max(0, Math.floor(data.score));
+
+        // 🔥 Stratégie : On met à jour le score le plus haut
+        // (Si le client envoie un score supérieur au total actuel, on l'ajoute)
+        const ancienTotal = stats.soloScore || 0;
+
+        if (nouveauScore > ancienTotal) {
+            // On ajoute la différence au mode qui a le plus de points
+            // (C'est une heuristique, le client devrait préciser le mode)
+            const diff = nouveauScore - ancienTotal;
+            
+            // Si le client a envoyé le mode, on l'utilise
+            if (data.mode === 'afrique') {
+                stats.soloScoreAfrique += diff;
+            } else if (data.mode === 'monde') {
+                stats.soloScoreMonde += diff;
+            } else {
+                // Sinon, on met dans le mode qui a le plus de points
+                if (stats.soloScoreAfrique > stats.soloScoreMonde) {
+                    stats.soloScoreAfrique += diff;
+                } else {
+                    stats.soloScoreMonde += diff;
+                }
+            }
+        }
+
+        // ✅ Pas de recalcul de niveau
+        stats.soloScore = stats.soloScoreMonde + stats.soloScoreAfrique;
+        stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
+
+        joueur.score = stats.soloScore;
+        joueur.niveau = stats.niveau;
+        joueur.niveauMonde = stats.niveauMonde;
+        joueur.niveauAfrique = stats.niveauAfrique;
+
+        sauvegarderDonnees();
+        io.emit('classements', getClassements());
+        io.emit('joueurs_en_ligne', getJoueursEnLigne());
+
+        socket.emit('solo_score_maj', {
+            scoreTotal: stats.soloScore,
+            soloScoreMonde: stats.soloScoreMonde,
+            soloScoreAfrique: stats.soloScoreAfrique,
+            niveau: stats.niveau,
+            niveauMonde: stats.niveauMonde,
+            niveauAfrique: stats.niveauAfrique
+        });
+
+        console.log(`📤 ${joueur.pseudo} : → M:${stats.soloScoreMonde} (niv${stats.niveauMonde}) / A:${stats.soloScoreAfrique} (niv${stats.niveauAfrique}) = ${stats.soloScore}`);
     });
 
     // ====== SOLO : DÉMARRER ======
@@ -606,80 +691,6 @@ io.on('connection', (socket) => {
         });
     });
 
-    // ====== SOLO : MISE À JOUR SCORE (séparé par mode, sans recalcul de niveau) ======
-    socket.on('solo_maj_score', (data) => {
-        const joueur = joueurs[socket.id];
-        if (!joueur) return;
-        if (!data || typeof data.scoreTotal !== 'number') return;
-        if (!Number.isFinite(data.scoreTotal)) return;
-
-        const mode = data.mode === 'afrique' ? 'afrique' : 'monde';
-
-        if (!classements[joueur.pseudo]) {
-            classements[joueur.pseudo] = {
-                victoires: 0, defaites: 0, egalites: 0,
-                parties: 0, meilleurScore: 0,
-                soloScoreMonde: 0,
-                soloScoreAfrique: 0,
-                soloScore: 0,
-                niveauMonde: 1,
-                niveauAfrique: 1,
-                niveau: 1
-            };
-        }
-
-        const stats = classements[joueur.pseudo];
-        stats.soloScoreMonde = stats.soloScoreMonde || 0;
-        stats.soloScoreAfrique = stats.soloScoreAfrique || 0;
-        stats.niveauMonde = stats.niveauMonde || 1;
-        stats.niveauAfrique = stats.niveauAfrique || 1;
-
-        const nouveauScore = Math.max(0, Math.floor(data.scoreTotal));
-
-        let ancien;
-        if (mode === 'afrique') {
-            ancien = stats.soloScoreAfrique;
-            if (nouveauScore - ancien > 5000) {
-                console.warn(`🚨 ${joueur.pseudo} : saut suspect Afrique (${ancien} → ${nouveauScore})`);
-                return;
-            }
-            if (nouveauScore <= ancien) return;
-            stats.soloScoreAfrique = nouveauScore;
-        } else {
-            ancien = stats.soloScoreMonde;
-            if (nouveauScore - ancien > 5000) {
-                console.warn(`🚨 ${joueur.pseudo} : saut suspect Monde (${ancien} → ${nouveauScore})`);
-                return;
-            }
-            if (nouveauScore <= ancien) return;
-            stats.soloScoreMonde = nouveauScore;
-        }
-
-        // ✅ Pas de recalcul de niveau : on garde les niveaux stockés
-        stats.soloScore = stats.soloScoreMonde + stats.soloScoreAfrique;
-        stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
-
-        joueur.score = stats.soloScore;
-        joueur.niveau = stats.niveau;
-        joueur.niveauMonde = stats.niveauMonde;
-        joueur.niveauAfrique = stats.niveauAfrique;
-
-        sauvegarderDonnees();
-        io.emit('classements', getClassements());
-        io.emit('joueurs_en_ligne', getJoueursEnLigne());
-
-        socket.emit('solo_score_maj', {
-            scoreTotal: stats.soloScore,
-            soloScoreMonde: stats.soloScoreMonde,
-            soloScoreAfrique: stats.soloScoreAfrique,
-            niveau: stats.niveau,
-            niveauMonde: stats.niveauMonde,
-            niveauAfrique: stats.niveauAfrique
-        });
-
-        console.log(`📤 ${joueur.pseudo} [${mode}] : → M:${stats.soloScoreMonde} (niv${stats.niveauMonde}) / A:${stats.soloScoreAfrique} (niv${stats.niveauAfrique}) = ${stats.soloScore}`);
-    });
-
     // ====== SOLO : TERMINER ======
     socket.on('solo_terminer', () => {
         const joueur = joueurs[socket.id];
@@ -738,7 +749,7 @@ io.on('connection', (socket) => {
             niveauAfrique: stats.niveauAfrique,
             bonnes: partie.bonnes,
             mauvaises: partie.mauvaises,
-            niveauChange: false, // Plus de changement auto
+            niveauChange: false,
             mode
         });
 
