@@ -1103,4 +1103,4 @@ chargerDonnees().then(() => {
         console.log(`🎯 Niveau : 1 niveau tous les 800 points (score global)`);
         console.log(`🌐 Origines autorisées: ${ORIGINES_AUTORISEES.join(', ')}`);
     });
-});
+});  
