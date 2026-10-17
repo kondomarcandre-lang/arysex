@@ -1,5 +1,6 @@
 // ========================================
-// 🔥 MAIN.JS - VERSION FINALE CORRIGÉE (JWT + Classements)
+// 🔥 MAIN.JS - VERSION CORRIGÉE FINALE
+// (duel v2 + notifications persistantes + sync score + sécurité)
 // ========================================
 
 (function () {
@@ -27,6 +28,7 @@
         if (!pseudo) return '';
         const trimmed = pseudo.trim();
         if (trimmed.length === 0) return '';
+        // Première lettre maj, le reste minuscule
         return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
     }
 
@@ -191,13 +193,8 @@
     let indiceUtilise = false;
     let estEnChargement = false;
     let modeActuel = 'monde';
-
-    // 🔥 SCORES ET NIVEAUX SÉPARÉS
-    let scoreMonde = 0;
-    let scoreAfrique = 0;
-    let niveauMonde = 1;
-    let niveauAfrique = 1;
-
+    let scoreTotal = 0;
+    let niveauActuel = 1;
     let questionsDejaPosees = new Set();
     let reponsesParNiveau = {};
     let timerInterval = null;
@@ -230,62 +227,51 @@
     let syncScoreEnCours = false;
 
     // ========================================
-    // HELPERS SCORE / NIVEAU
-    // ========================================
-    function getScoreActuel() {
-        return modeActuel === 'afrique' ? scoreAfrique : scoreMonde;
-    }
-
-    function getNiveauActuel() {
-        return modeActuel === 'afrique' ? niveauAfrique : niveauMonde;
-    }
-
-    function getScoreTotal() {
-        return scoreMonde + scoreAfrique;
-    }
-
-    // ========================================
     // SAUVEGARDE MODE
     // ========================================
-    function sauvegarderDonneesMode() {
+    function sauvegarderDonneesMode(mode) {
         try {
-            localStorage.setItem('quiz_score_monde', scoreMonde);
-            localStorage.setItem('quiz_score_afrique', scoreAfrique);
-            localStorage.setItem('quiz_niveau_monde', niveauMonde);
-            localStorage.setItem('quiz_niveau_afrique', niveauAfrique);
-            localStorage.setItem('quiz_mode', modeActuel);
-            localStorage.setItem('quiz_questions', JSON.stringify(Array.from(questionsDejaPosees)));
+            localStorage.setItem(`quiz_${mode}_data`, JSON.stringify({
+                niveau: niveauActuel,
+                score: scoreTotal,
+                questions: Array.from(questionsDejaPosees)
+            }));
         } catch (e) { }
     }
 
-    function chargerDonneesMode() {
+    function chargerDonneesMode(mode) {
         try {
-            const savedMonde = localStorage.getItem('quiz_score_monde');
-            const savedAfrique = localStorage.getItem('quiz_score_afrique');
-            const savedNivMonde = localStorage.getItem('quiz_niveau_monde');
-            const savedNivAfrique = localStorage.getItem('quiz_niveau_afrique');
-            const savedMode = localStorage.getItem('quiz_mode');
-            const savedQuestions = localStorage.getItem('quiz_questions');
-
-            if (savedMonde) scoreMonde = parseInt(savedMonde, 10) || 0;
-            if (savedAfrique) scoreAfrique = parseInt(savedAfrique, 10) || 0;
-            if (savedNivMonde) niveauMonde = parseInt(savedNivMonde, 10) || 1;
-            if (savedNivAfrique) niveauAfrique = parseInt(savedNivAfrique, 10) || 1;
-            if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) modeActuel = savedMode;
-            if (savedQuestions) {
-                try { questionsDejaPosees = new Set(JSON.parse(savedQuestions)); } catch (e) { }
+            const data = localStorage.getItem(`quiz_${mode}_data`);
+            if (data) {
+                const parsed = JSON.parse(data);
+                niveauActuel = parsed.niveau || 1;
+                scoreTotal = parsed.score || 0;
+                questionsDejaPosees = new Set(parsed.questions || []);
             }
-            console.log(`📊 Données chargées : Monde Niv${niveauMonde}/${scoreMonde}pts, Afrique Niv${niveauAfrique}/${scoreAfrique}pts`);
+            console.log(`📊 Données chargées pour ${mode}: niveau=${niveauActuel}, score=${scoreTotal}`);
         } catch (e) { }
     }
 
     function sauvegarderPartie() {
-        sauvegarderDonneesMode();
+        try {
+            localStorage.setItem('quiz_niveau', niveauActuel);
+            localStorage.setItem('quiz_score', scoreTotal);
+            localStorage.setItem('quiz_mode', modeActuel);
+            sauvegarderDonneesMode(modeActuel);
+        } catch (e) { }
     }
 
     function chargerPartie() {
-        chargerDonneesMode();
-        mettreAJourInterface();
+        try {
+            const savedNiveau = localStorage.getItem('quiz_niveau');
+            const savedScore = localStorage.getItem('quiz_score');
+            const savedMode = localStorage.getItem('quiz_mode');
+            if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
+            if (savedScore) scoreTotal = parseInt(savedScore, 10);
+            if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) modeActuel = savedMode;
+            chargerDonneesMode(modeActuel);
+            mettreAJourInterface();
+        } catch (e) { }
     }
 
     function sauvegarderHistorique() {
@@ -295,36 +281,12 @@
     }
 
     // ========================================
-    // 🔄 SYNC SCORE AVEC LE SERVEUR
-    // ========================================
-    function syncScoreServeur() {
-        if (!socket || !socket.connected) return;
-
-        const scoreDuMode = getScoreActuel();
-        const niveauDuMode = getNiveauActuel();
-
-        socket.emit('solo_maj_score', {
-            scoreTotal: scoreDuMode,
-            mode: modeActuel,
-            niveau: niveauDuMode
-        });
-
-        console.log(`📤 Sync [${modeActuel}] : ${scoreDuMode} pts, Niv ${niveauDuMode}`);
-    }
-
-    // ========================================
     // VÉRIFICATION DÉFI
     // ========================================
     function verifierDeblocageDefi() {
         if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
             paliersAtteints.push(palierActuel);
-
-            if (modeActuel === 'afrique') {
-                scoreAfrique += BONUS_DEFI;
-            } else {
-                scoreMonde += BONUS_DEFI;
-            }
-
+            scoreTotal += BONUS_DEFI;
             sauvegarderPartie();
             sauvegarderDefi();
             mettreAJourStats();
@@ -332,7 +294,6 @@
             palierActuel += PALIER_SUIVANT;
             sauvegarderDefi();
             mettreAJourStats();
-            syncScoreServeur();
             return true;
         }
         return false;
@@ -382,13 +343,8 @@
     let categorieSpan, difficulteSpan;
 
     function mettreAJourStats() {
-        const scoreActuel = getScoreActuel();
-        const niveauActuel = getNiveauActuel();
-
-        if (profilScore) profilScore.textContent = scoreActuel;
-        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreActuel;
-        if (profilNiveau) profilNiveau.textContent = niveauActuel;
-        if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
+        if (profilScore) profilScore.textContent = scoreTotal;
+        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
 
         const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
         if (statsCorrect) statsCorrect.textContent = `✅ ${stats.correct}`;
@@ -403,30 +359,33 @@
         if (dailyPlayers) dailyPlayers.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
         if (btnDaily) btnDaily.textContent = `🎯 ${serieActuelle}/${palierActuel}`;
 
+        if (socket && socket.connected) {
+            // 🔧 On demande au serveur de REMPLACER (mode: 'set')
+            socket.emit('mettre_a_jour_score', {
+                score: scoreTotal,
+                mode: 'set'
+            });
+        }
+
         mettreAJourRang();
     }
 
     function mettreAJourRang() {
         if (rangBadge && rangNom && rangBar && rangPoints) {
-            const scoreActuel = getScoreActuel();
-            const rang = getRang(scoreActuel);
-            const progress = getRangProgress(scoreActuel);
+            const rang = getRang(scoreTotal);
+            const progress = getRangProgress(scoreTotal);
             rangBadge.textContent = rang.badge;
             rangNom.textContent = rang.nom;
             rangBar.style.setProperty('--progress', progress + '%');
-            rangPoints.textContent = `${scoreActuel} / ${rang.max === Infinity ? '∞' : rang.max}`;
+            rangPoints.textContent = `${scoreTotal} / ${rang.max === Infinity ? '∞' : rang.max}`;
         }
     }
 
     function mettreAJourInterface() {
-        const scoreActuel = getScoreActuel();
-        const niveauActuel = getNiveauActuel();
-
         if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
         if (profilNiveau) profilNiveau.textContent = niveauActuel;
-        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreActuel;
-        if (profilScore) profilScore.textContent = scoreActuel;
-
+        if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
+        if (profilScore) profilScore.textContent = scoreTotal;
         mettreAJourRang();
     }
 
@@ -535,14 +494,7 @@
             Haptic.medium();
             lancerConfettis();
             scoreNiveau += 10;
-
-            if (modeActuel === 'afrique') {
-                scoreAfrique += 10;
-            } else {
-                scoreMonde += 10;
-            }
-
-            const niveauActuel = getNiveauActuel();
+            scoreTotal += 10;
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
             serieActuelle++;
             verifierDeblocageDefi();
@@ -563,7 +515,6 @@
                 questionZone.classList.add('shake');
                 setTimeout(() => questionZone.classList.remove('shake'), 500);
             }
-            const niveauActuel = getNiveauActuel();
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].incorrect++;
             serieActuelle = 0;
         }
@@ -571,7 +522,6 @@
         mettreAJourStats();
         sauvegarderPartie();
         sauvegarderDefi();
-        syncScoreServeur();
 
         setTimeout(() => {
             indexQuestion++;
@@ -587,7 +537,6 @@
         estEnJeu = false;
         if (zoneTimer) zoneTimer.style.display = 'none';
 
-        const niveauActuel = getNiveauActuel();
         const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
 
         if (stats.correct < 10) {
@@ -609,7 +558,6 @@
             sauvegarderPartie();
             sauvegarderDefi();
             mettreAJourStats();
-            syncScoreServeur();
             return;
         }
 
@@ -618,16 +566,9 @@
             Haptic.pattern();
             lancerConfettis(['#fdcb6e', '#ff6b6b', '#4a6cf7', '#00b894', '#6c5ce7']);
             if (questionText) questionText.textContent = `🏆 PARFAIT ! 10/10 ! Score : ${scoreNiveau} pts - Passage au niveau ${niveauActuel + 1}`;
-
-            if (modeActuel === 'afrique') {
-                scoreAfrique += 20;
-                niveauAfrique++;
-            } else {
-                scoreMonde += 20;
-                niveauMonde++;
-            }
-
+            scoreTotal += 20;
             afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
+            niveauActuel++;
             mettreAJourInterface();
         }
 
@@ -643,7 +584,6 @@
         sauvegarderPartie();
         sauvegarderDefi();
         mettreAJourStats();
-        syncScoreServeur();
     }
 
     // ========================================
@@ -666,7 +606,6 @@
         if (zoneTimer) zoneTimer.style.display = 'none';
 
         arreterTimer();
-        const niveauActuel = getNiveauActuel();
         reponsesParNiveau[niveauActuel] = { correct: 0, incorrect: 0 };
 
         try {
@@ -686,7 +625,6 @@
             scoreNiveau = 0;
             reponseDonnee = false;
             estEnJeu = true;
-
             if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
             if (profilNiveau) profilNiveau.textContent = niveauActuel;
             if (btnAction) {
@@ -705,7 +643,6 @@
             mettreAJourStats();
             afficherQuestion();
             sauvegarderPartie();
-            syncScoreServeur();
 
         } catch (error) {
             console.error('❌ Erreur:', error);
@@ -750,13 +687,17 @@
     }
 
     // ========================================
-    // 🔔 NOTIFICATIONS PUSH
+    // 🔔 NOTIFICATIONS PUSH - FONCTIONS
     // ========================================
     function urlBase64ToUint8Array(base64String) {
         const padding = '='.repeat((4 - base64String.length % 4) % 4);
-        const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+        const base64 = (base64String + padding)
+            .replace(/\-/g, '+')
+            .replace(/_/g, '/');
+
         const rawData = window.atob(base64);
         const outputArray = new Uint8Array(rawData.length);
+
         for (let i = 0; i < rawData.length; ++i) {
             outputArray[i] = rawData.charCodeAt(i);
         }
@@ -765,6 +706,9 @@
 
     const VAPID_PUBLIC_KEY = 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
 
+    // ========================================
+    // 🔁 RÉ-ENREGISTRER L'ABONNEMENT PUSH
+    // ========================================
     async function reenregistrerPush() {
         if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
         if (!socket || !socket.connected) return;
@@ -782,228 +726,12 @@
                     pseudo: pseudo
                 });
                 console.log('🔁 Abonnement push ré-enregistré pour', pseudo);
+            } else {
+                console.log('ℹ️ Aucun abonnement push existant');
             }
         } catch (e) {
             console.error('❌ Erreur ré-enregistrement push:', e);
         }
-    }
-
-    // ========================================
-    // 🔌 CONNEXION SOCKET (CORRIGÉE AVEC JWT)
-    // ========================================
-    async function connecterServeur() {
-        const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-            ? 'http://localhost:3000'
-            : 'https://arysex-quiz-duel.onrender.com';
-
-        const pseudoActuel = profilNom.textContent;
-        let token = localStorage.getItem('quiz_token');
-
-        // On vérifie si le token correspond bien au pseudo actuel
-        if (!token || localStorage.getItem('quiz_pseudo_token') !== pseudoActuel) {
-            console.log('🔑 Demande d\'un nouveau token JWT pour', pseudoActuel);
-            try {
-                const res = await fetch(`${serverUrl}/api/auth`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ pseudo: pseudoActuel })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    token = data.token;
-                    localStorage.setItem('quiz_token', token);
-                    localStorage.setItem('quiz_pseudo_token', pseudoActuel);
-                } else {
-                    afficherNotification('❌ Erreur d\'authentification', 'error');
-                    return;
-                }
-            } catch (e) {
-                console.error('❌ Impossible de récupérer le token JWT:', e);
-                afficherNotification('❌ Serveur injoignable', 'error');
-                return;
-            }
-        }
-
-        // Connexion Socket avec le token
-        socket = io(serverUrl, {
-            auth: { token: token }
-        });
-        window.socket = socket;
-
-        socket.on('connect', () => {
-            console.log('🔗 Connecté au serveur de duel');
-            socket.emit('enregistrer');
-            
-            // On demande les données dès la connexion
-            socket.emit('demander_joueurs');
-            socket.emit('demander_classements');
-            
-            setTimeout(() => reenregistrerPush(), 1000);
-        });
-
-        socket.on('connect_error', (err) => {
-            console.error('❌ Erreur de connexion Socket:', err.message);
-        });
-
-        socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
-
-        // 🔥 RÉCEPTION DU PROFIL DU SERVEUR
-        socket.on('mon_profil', (profil) => {
-            console.log('👤 Profil reçu :', profil);
-
-            const serveurMonde = profil.soloScoreMonde || 0;
-            const serveurAfrique = profil.soloScoreAfrique || 0;
-            const niveauServeurMonde = profil.niveauMonde || 1;
-            const niveauServeurAfrique = profil.niveauAfrique || 1;
-
-            let besoinSync = false;
-
-            if (serveurMonde > scoreMonde) {
-                scoreMonde = serveurMonde;
-            } else if (scoreMonde > serveurMonde) {
-                besoinSync = true;
-            }
-
-            if (serveurAfrique > scoreAfrique) {
-                scoreAfrique = serveurAfrique;
-            } else if (scoreAfrique > serveurAfrique) {
-                besoinSync = true;
-            }
-
-            niveauMonde = Math.max(niveauMonde, niveauServeurMonde);
-            niveauAfrique = Math.max(niveauAfrique, niveauServeurAfrique);
-
-            sauvegarderPartie();
-            mettreAJourInterface();
-            mettreAJourStats();
-
-            if (besoinSync) {
-                syncScoreServeur();
-            }
-        });
-
-        // 🔥 CONFIRMATION DU SCORE MIS À JOUR
-        socket.on('solo_score_maj', (data) => {
-            console.log(`✅ Score confirmé : M:${data.soloScoreMonde}/A:${data.soloScoreAfrique}`);
-
-            if (typeof data.soloScoreMonde === 'number') scoreMonde = data.soloScoreMonde;
-            if (typeof data.soloScoreAfrique === 'number') scoreAfrique = data.soloScoreAfrique;
-            if (typeof data.niveauMonde === 'number') niveauMonde = data.niveauMonde;
-            if (typeof data.niveauAfrique === 'number') niveauAfrique = data.niveauAfrique;
-
-            sauvegarderPartie();
-            mettreAJourStats();
-            mettreAJourInterface();
-        });
-
-        // 🔄 SYNC SCORE depuis les classements
-        socket.on('classements', (classements) => {
-            afficherClassements(classements);
-
-            if (estEnJeu || estEnDuel || syncScoreEnCours) return;
-
-            const pseudo = profilNom.textContent;
-            const monEntree = classements.find(c => c.pseudo === pseudo);
-
-            if (monEntree) {
-                const serveurMonde = monEntree.soloScoreMonde || 0;
-                const serveurAfrique = monEntree.soloScoreAfrique || 0;
-
-                let besoinSync = false;
-
-                if (serveurMonde > scoreMonde) scoreMonde = serveurMonde;
-                else if (scoreMonde > serveurMonde) besoinSync = true;
-
-                if (serveurAfrique > scoreAfrique) scoreAfrique = serveurAfrique;
-                else if (scoreAfrique > serveurAfrique) besoinSync = true;
-
-                niveauMonde = Math.max(niveauMonde, monEntree.niveauMonde || 1);
-                niveauAfrique = Math.max(niveauAfrique, monEntree.niveauAfrique || 1);
-
-                if (besoinSync && socket && socket.connected) {
-                    syncScoreEnCours = true;
-                    syncScoreServeur();
-                    setTimeout(() => { syncScoreEnCours = false; }, 2000);
-                }
-
-                sauvegarderPartie();
-                mettreAJourStats();
-                mettreAJourInterface();
-            }
-        });
-
-        socket.on('invitation_refusee', (data) => {
-            afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
-            duelInvitation.style.display = 'none';
-            estEnDuel = false;
-        });
-
-        socket.on('erreur', (data) => {
-            afficherNotification(`❌ ${data.message}`, 'error');
-            estEnDuel = false;
-            duelInvitation.style.display = 'none';
-        });
-
-        socket.on('invitation_duel', (data) => {
-            inviteNom.textContent = data.inviteurPseudo;
-            inviteModal.classList.add('active');
-            invitationEnCours = data.invitationId;
-            SoundManager.click();
-            Haptic.medium();
-        });
-
-        socket.on('demarrer_duel', (data) => {
-            SoundManager.duelStart();
-            estEnDuel = true;
-            salleId = data.salleId;
-
-            duelQuestions = data.questions || [];
-            duelIndex = 0;
-            duelScoreLocal = 0;
-            duelBonnesLocal = 0;
-            duelReponsesEnvoyees = {};
-
-            duelOverlay.style.display = 'flex';
-            duelNom1.textContent = profilNom.textContent;
-            duelNom2.textContent = data.adversaire;
-            duelScore1.textContent = '0';
-            duelScore2.textContent = '0';
-            duelReponses1.textContent = '✅ 0';
-            duelReponses2.textContent = '✅ 0';
-            duelResultat.style.display = 'none';
-            duelStatut.style.display = 'none';
-            duelInvitation.style.display = 'none';
-            duelTimer.style.display = 'block';
-            duelQuestionNumero.textContent = `Question 1/${duelQuestions.length}`;
-            duelQuestionText.textContent = 'Prêt ? C\'est parti !';
-            duelReponsesContainer.innerHTML = '';
-
-            setTimeout(() => afficherQuestionDuel(0), 1200);
-        });
-
-        socket.on('adversaire_repondu', (data) => {
-            duelScore2.textContent = data.adversaireScore || 0;
-            duelReponses2.textContent = `✅ ${data.adversaireBonnes || 0}`;
-        });
-
-        socket.on('mon_score_duel', (data) => {
-            duelScoreLocal = data.score;
-            duelBonnesLocal = data.bonnes;
-            duelScore1.textContent = duelScoreLocal;
-            duelReponses1.textContent = `✅ ${duelBonnesLocal}`;
-        });
-
-        socket.on('adversaire_termine', () => {
-            duelQuestionNumero.textContent = '🎯 L\'adversaire a terminé. En attente...';
-        });
-
-        socket.on('fin_duel', (data) => {
-            terminerDuelAffichage(data);
-        });
-
-        socket.on('push_enregistre', (data) => {
-            console.log('📬 Push confirmé par le serveur:', data);
-        });
     }
 
     // ========================================
@@ -1051,6 +779,7 @@
         const invitationNom = document.getElementById('invitationNom');
         const btnAnnulerDuel = document.getElementById('btnAnnulerDuel');
         const duelStatut = document.getElementById('duelStatut');
+        const duelStatutTexte = document.getElementById('duelStatutTexte');
         const duelOverlay = document.getElementById('duelOverlay');
         const btnFermerDuel = document.getElementById('btnFermerDuel');
         const btnQuitterDuel = document.getElementById('btnQuitterDuel');
@@ -1083,6 +812,7 @@
             if (estEnChargement) return;
             if (mode === modeActuel) return;
 
+            sauvegarderDonneesMode(modeActuel);
             modeActuel = mode;
 
             if (btnModeMonde && btnModeAfrique) {
@@ -1090,6 +820,7 @@
                 btnModeAfrique.classList.toggle('active', mode === 'afrique');
             }
 
+            chargerDonneesMode(mode);
             serieActuelle = 0;
             palierActuel = 10;
             paliersAtteints = [];
@@ -1098,7 +829,6 @@
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
-            mettreAJourStats();
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
@@ -1109,7 +839,10 @@
         // ========================================
         function lancerLeJeu() {
             let pseudo = welcomePseudo.value.trim();
-            if (!pseudo || pseudo.length < 2) pseudo = 'Joueur';
+            if (!pseudo || pseudo.length < 2) {
+                pseudo = 'Joueur';
+            }
+            // 🔧 Normalisation
             pseudo = normaliserPseudo(pseudo);
             welcomePseudo.value = pseudo;
             try { localStorage.setItem('quiz_pseudo', pseudo); } catch (e) { }
@@ -1174,13 +907,15 @@
         }
 
         // ========================================
-        // BOUTON RETOUR AU CHOIX DU MODE
+        // ✅ BOUTON RETOUR AU CHOIX DU MODE
         // ========================================
         const btnRetourMode = document.getElementById('btnRetourMode');
         if (btnRetourMode) {
             btnRetourMode.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
+
+                console.log('🔙 Bouton retour cliqué !');
 
                 arreterTimer();
                 estEnJeu = false;
@@ -1302,18 +1037,10 @@
                     nouveauPseudo = normaliserPseudo(nouveauPseudo);
                     profilNom.textContent = nouveauPseudo;
                     try { localStorage.setItem('quiz_pseudo', nouveauPseudo); } catch (e) { }
-                    
-                    // 🔥 On supprime l'ancien token pour forcer la reconnexion
-                    localStorage.removeItem('quiz_token');
-                    
                     if (modalPseudo) modalPseudo.style.display = 'none';
                     afficherNotification(`👤 Pseudo changé en "${nouveauPseudo}"`, 'success');
-                    
-                    // On reconnecte le serveur avec le nouveau pseudo
-                    if (socket) socket.disconnect();
-                    connecterServeur();
-                    
-                    setTimeout(() => reenregistrerPush(), 1500);
+                    if (socket) socket.emit('reconnecter', { pseudo: nouveauPseudo });
+                    setTimeout(() => reenregistrerPush(), 500);
                 } else {
                     afficherNotification('❌ Pseudo trop court (minimum 2 caractères)', 'error');
                 }
@@ -1339,7 +1066,127 @@
         }
 
         // ========================================
-        // INITIALISER NOTIFICATIONS
+        // CONNEXION SOCKET
+        // ========================================
+        function connecterServeur() {
+            const serverUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                ? 'http://localhost:3000'
+                : 'https://arysex-quiz-duel.onrender.com';
+
+            socket = io(serverUrl);
+            window.socket = socket;
+
+            socket.on('connect', () => {
+                console.log('🔗 Connecté au serveur de duel');
+                socket.emit('enregistrer', {
+                    pseudo: profilNom.textContent,
+                    niveau: niveauActuel,
+                    score: scoreTotal
+                });
+                setTimeout(() => reenregistrerPush(), 1000);
+            });
+
+            socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
+
+            // 🔄 SYNC SCORE : on récupère le score du serveur s'il est plus grand
+            socket.on('classements', (classements) => {
+                afficherClassements(classements);
+
+                // Ne pas sync pendant qu'on joue (pour éviter d'écraser un score en cours)
+                if (estEnJeu || estEnDuel || syncScoreEnCours) return;
+
+                const pseudo = profilNom.textContent;
+                const monEntree = classements.find(c => c.pseudo === pseudo);
+
+                if (monEntree && monEntree.soloScore > 0) {
+                    if (monEntree.soloScore > scoreTotal) {
+                        syncScoreEnCours = true;
+                        console.log(`🔄 Sync serveur → local : ${scoreTotal} → ${monEntree.soloScore}`);
+                        scoreTotal = monEntree.soloScore;
+                        sauvegarderPartie();
+                        mettreAJourStats();
+                        mettreAJourInterface();
+                        setTimeout(() => { syncScoreEnCours = false; }, 2000);
+                    }
+                }
+            });
+
+            socket.on('invitation_refusee', (data) => {
+                afficherNotification(`❌ ${data.joueur} a refusé votre invitation`, 'error');
+                duelInvitation.style.display = 'none';
+                estEnDuel = false;
+            });
+
+            socket.on('erreur', (data) => {
+                afficherNotification(`❌ ${data.message}`, 'error');
+                estEnDuel = false;
+                duelInvitation.style.display = 'none';
+            });
+
+            socket.on('invitation_duel', (data) => {
+                inviteNom.textContent = data.inviteurPseudo;
+                inviteModal.classList.add('active');
+                invitationEnCours = data.invitationId;
+                SoundManager.click();
+                Haptic.medium();
+            });
+
+            socket.on('demarrer_duel', (data) => {
+                SoundManager.duelStart();
+                estEnDuel = true;
+                salleId = data.salleId;
+
+                duelQuestions = data.questions || [];
+                duelIndex = 0;
+                duelScoreLocal = 0;
+                duelBonnesLocal = 0;
+                duelReponsesEnvoyees = {};
+
+                duelOverlay.style.display = 'flex';
+                duelNom1.textContent = profilNom.textContent;
+                duelNom2.textContent = data.adversaire;
+                duelScore1.textContent = '0';
+                duelScore2.textContent = '0';
+                duelReponses1.textContent = '✅ 0';
+                duelReponses2.textContent = '✅ 0';
+                duelResultat.style.display = 'none';
+                duelStatut.style.display = 'none';
+                duelInvitation.style.display = 'none';
+                duelTimer.style.display = 'block';
+                duelQuestionNumero.textContent = `Question 1/${duelQuestions.length}`;
+                duelQuestionText.textContent = 'Prêt ? C\'est parti !';
+                duelReponsesContainer.innerHTML = '';
+
+                setTimeout(() => afficherQuestionDuel(0), 1200);
+            });
+
+            socket.on('adversaire_repondu', (data) => {
+                duelScore2.textContent = data.adversaireScore || 0;
+                duelReponses2.textContent = `✅ ${data.adversaireBonnes || 0}`;
+            });
+
+            socket.on('mon_score_duel', (data) => {
+                duelScoreLocal = data.score;
+                duelBonnesLocal = data.bonnes;
+                duelScore1.textContent = duelScoreLocal;
+                duelReponses1.textContent = `✅ ${duelBonnesLocal}`;
+            });
+
+            socket.on('adversaire_termine', () => {
+                duelQuestionNumero.textContent = '🎯 L\'adversaire a terminé. En attente...';
+            });
+
+            socket.on('fin_duel', (data) => {
+                terminerDuelAffichage(data);
+            });
+
+            socket.on('push_enregistre', (data) => {
+                console.log('📬 Push confirmé par le serveur:', data);
+            });
+        }
+
+        // ========================================
+        // 🔔 INITIALISER NOTIFICATIONS
         // ========================================
         function initialiserNotifications() {
             const btnNotif = document.getElementById('btnNotif');
@@ -1348,6 +1195,8 @@
                 'Notification' in window &&
                 'serviceWorker' in navigator &&
                 'PushManager' in window;
+
+            console.log('🔔 Notifications supportées:', notifSupportees);
 
             if (!notifSupportees || !btnNotif) {
                 if (btnNotif) btnNotif.style.display = 'none';
@@ -1372,9 +1221,15 @@
 
             btnNotif.addEventListener('click', async function () {
                 try {
+                    console.log('🔔 Clic sur bouton notifications');
+
                     let permission = Notification.permission;
                     if (permission !== 'granted') {
+                        console.log('🔔 Demande de permission...');
                         permission = await Notification.requestPermission();
+                        console.log('🔔 Permission:', permission);
+                    } else {
+                        console.log('🔔 Permission déjà accordée');
                     }
 
                     if (permission !== 'granted') {
@@ -1386,13 +1241,19 @@
                     }
 
                     const registration = await navigator.serviceWorker.ready;
+                    console.log('✅ SW prêt:', registration.scope);
+
                     let subscription = await registration.pushManager.getSubscription();
 
                     if (!subscription) {
+                        console.log('📬 Création nouvel abonnement...');
                         subscription = await registration.pushManager.subscribe({
                             userVisibleOnly: true,
                             applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY)
                         });
+                        console.log('✅ Abonnement créé');
+                    } else {
+                        console.log('✅ Abonnement existant trouvé');
                     }
 
                     if (socket && socket.connected) {
@@ -1400,7 +1261,9 @@
                             subscription: subscription.toJSON(),
                             pseudo: profilNom.textContent
                         });
+                        console.log('📤 Abonnement envoyé au serveur pour', profilNom.textContent);
                     } else {
+                        console.warn('⚠️ Socket non connecté');
                         afficherNotification('⚠️ Reconnecte-toi et réessaie', 'error');
                         return;
                     }
@@ -1408,8 +1271,18 @@
                     btnNotif.textContent = '✅ Notifications activées';
                     btnNotif.classList.add('actif');
                     btnNotif.disabled = true;
+
                     afficherNotification('🔔 Notifications activées !', 'success');
                     SoundManager.correct();
+
+                    setTimeout(() => {
+                        registration.showNotification('🎯 AryseX Quiz', {
+                            body: 'Les notifications sont activées ! Tu recevras les nouveaux quiz. 🚀',
+                            icon: '/icons/icon-192.png',
+                            badge: '/icons/icon-96.png',
+                            vibrate: [200, 100, 200]
+                        });
+                    }, 1500);
 
                 } catch (error) {
                     console.error('❌ Erreur notifications:', error);
@@ -1648,16 +1521,9 @@
                 duelGagnant.textContent = '🏆 Vous avez gagné ! 🎉';
                 SoundManager.victory();
                 lancerConfettis(['#fdcb6e', '#ffd93d', '#ff6b6b', '#4a6cf7']);
-
-                if (modeActuel === 'afrique') {
-                    scoreAfrique += 30;
-                } else {
-                    scoreMonde += 30;
-                }
-
+                scoreTotal += 30;
                 sauvegarderPartie();
                 mettreAJourStats();
-                syncScoreServeur();
                 setTimeout(() => afficherNotification('🎉 Vous avez gagné le duel ! +30 pts', 'success'), 500);
             } else {
                 duelGagnant.textContent = `👏 ${data.gagnant} a gagné !`;
@@ -1733,11 +1599,7 @@
                                 <span class="defaites">💔 ${j.defaites || 0}</span>
                                 <span class="winrate">📊 ${j.winRate || 0}%</span>
                             ` : `
-                                <div style="display:flex; flex-direction:column; align-items:flex-end; line-height:1.4; font-size:13px;">
-                                    <span>🌎 Niv. ${j.niveauMonde || 1} · <strong>${j.soloScoreMonde || 0} pts</strong></span>
-                                    <span>🌍 Niv. ${j.niveauAfrique || 1} · <strong>${j.soloScoreAfrique || 0} pts</strong></span>
-                                    <span style="color:#4a6cf7; margin-top:2px; font-weight:700;">⭐ Total : ${j.soloScore || 0} pts</span>
-                                </div>
+                                <span>⭐ ${j.soloScore || 0}</span>
                             `}
                         </div>
                     </div>
@@ -1840,9 +1702,14 @@
         // ========================================
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
+            sauvegarderDonneesMode(modeActuel);
             sauvegarderDefi();
+
             if (socket && socket.connected) {
-                syncScoreServeur();
+                socket.emit('mettre_a_jour_score', {
+                    score: scoreTotal,
+                    mode: 'set'
+                });
             }
         });
 

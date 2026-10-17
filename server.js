@@ -1,5 +1,7 @@
 // ========================================
-// 🔥 SERVEUR - AryseX Quiz Duel (Version finale)
+// 🔥 SERVEUR - AryseX Quiz Duel
+// jsonbin.io + web-push + notifications fun à la connexion
+// + normalisation pseudo + score isolé par joueur
 // ========================================
 
 const express = require('express');
@@ -7,36 +9,20 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 const webpush = require('web-push');
-const jwt = require('jsonwebtoken');
-const { getMessage } = require('./messages'); // Assure-toi que ce fichier existe
+const { getMessage } = require('./messages');
 
 const app = express();
 const server = http.createServer(app);
-
-// ========================================
-// 🌐 CORS
-// ========================================
-const ORIGINES_AUTORISEES = [
-    'https://arysex.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5500',
-    'http://127.0.0.1:5500'
-];
-
 const io = socketIo(server, {
-    cors: {
-        origin: ORIGINES_AUTORISEES,
-        methods: ["GET", "POST"],
-        credentials: true
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-app.use(cors({ origin: ORIGINES_AUTORISEES, credentials: true }));
-app.use(express.json({ limit: '100kb' }));
-app.use(express.static('.'));
+app.use(cors());
+app.use(express.json());
+app.use(express.static('.'));  
 
 // ========================================
-// 🔔 WEB-PUSH
+// 🔔 CONFIGURATION WEB-PUSH
 // ========================================
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC || 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'Rbw9F5qxXgzCVmIuip6aCheTRPRcp2LJ6YFkoJckz9s';
@@ -45,37 +31,13 @@ const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:contact@arysex.com';
 webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
 
 // ========================================
-// 🔐 JWT
-// ========================================
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-NE-PAS-UTILISER-EN-PROD';
-const JWT_TTL = process.env.JWT_TTL || '30d';
-
-if (!process.env.JWT_SECRET) {
-    console.warn('⚠️  JWT_SECRET non défini — utilisation du secret de développement !');
-}
-
-function genererToken(pseudo) {
-    return jwt.sign({ pseudo }, JWT_SECRET, { expiresIn: JWT_TTL });
-}
-
-function verifierToken(token) {
-    try {
-        return jwt.verify(token, JWT_SECRET);
-    } catch (e) {
-        return null;
-    }
-}
-
-// ========================================
-// 🔧 NORMALISATION
+// 🔧 NORMALISATION PSEUDO
 // ========================================
 function normaliserPseudo(pseudo) {
     if (!pseudo) return '';
     const trimmed = String(pseudo).trim();
     if (trimmed.length === 0) return '';
-    const nettoye = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 20);
-    if (nettoye.length === 0) return '';
-    return nettoye.charAt(0).toUpperCase() + nettoye.slice(1).toLowerCase();
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
 // ========================================
@@ -92,10 +54,11 @@ let meta = {
     derniereNotif16h: null
 };
 
+// Anti-double envoi simultané
 let envoiNotifEnCours = false;
 
 // ========================================
-// 💾 JSONBIN
+// 💾 JSONBIN.IO
 // ========================================
 const JSONBIN_BIN_ID = process.env.JSONBIN_BIN_ID || 'TON_BIN_ID_ICI';
 const JSONBIN_API_KEY = process.env.JSONBIN_API_KEY || 'TA_MASTER_KEY_ICI';
@@ -123,74 +86,31 @@ async function chargerDonnees() {
             meta = { derniereNotif10h: null, derniereNotif16h: null };
         }
 
-        // 🔧 Normalisation + migration
+        // 🔧 Nettoyage : fusionner les doublons de casse dans classements
         const pseudosNormalises = {};
         for (const [pseudo, stats] of Object.entries(classements)) {
             const normalise = normaliserPseudo(pseudo);
-
-            let monde = stats.soloScoreMonde || 0;
-            let afrique = stats.soloScoreAfrique || 0;
-
-            if (typeof stats.soloScore === 'number' && stats.soloScore > 0 && monde === 0 && afrique === 0) {
-                monde = stats.soloScore;
-            }
-
-            const corrigees = {
-                victoires: stats.victoires || 0,
-                defaites: stats.defaites || 0,
-                egalites: stats.egalites || 0,
-                parties: stats.parties || 0,
-                meilleurScore: stats.meilleurScore || 0,
-                soloScoreMonde: monde,
-                soloScoreAfrique: afrique,
-                soloScore: monde + afrique,
-                niveauMonde: stats.niveauMonde || 1,
-                niveauAfrique: stats.niveauAfrique || 1,
-                niveau: Math.max(stats.niveauMonde || 1, stats.niveauAfrique || 1)
-            };
-
             if (!pseudosNormalises[normalise]) {
-                pseudosNormalises[normalise] = corrigees;
+                pseudosNormalises[normalise] = stats;
             } else {
-                const e = pseudosNormalises[normalise];
-                const maxMonde = Math.max(e.soloScoreMonde, corrigees.soloScoreMonde);
-                const maxAfrique = Math.max(e.soloScoreAfrique, corrigees.soloScoreAfrique);
+                // Fusionner : garder le max sur chaque champ
+                const existant = pseudosNormalises[normalise];
                 pseudosNormalises[normalise] = {
-                    victoires: Math.max(e.victoires, corrigees.victoires),
-                    defaites: Math.max(e.defaites, corrigees.defaites),
-                    egalites: Math.max(e.egalites, corrigees.egalites),
-                    parties: Math.max(e.parties, corrigees.parties),
-                    meilleurScore: Math.max(e.meilleurScore, corrigees.meilleurScore),
-                    soloScoreMonde: maxMonde,
-                    soloScoreAfrique: maxAfrique,
-                    soloScore: maxMonde + maxAfrique,
-                    niveauMonde: Math.max(e.niveauMonde, corrigees.niveauMonde),
-                    niveauAfrique: Math.max(e.niveauAfrique, corrigees.niveauAfrique),
-                    niveau: Math.max(e.niveau, corrigees.niveau)
+                    victoires: Math.max(existant.victoires || 0, stats.victoires || 0),
+                    defaites: Math.max(existant.defaites || 0, stats.defaites || 0),
+                    egalites: Math.max(existant.egalites || 0, stats.egalites || 0),
+                    parties: Math.max(existant.parties || 0, stats.parties || 0),
+                    meilleurScore: Math.max(existant.meilleurScore || 0, stats.meilleurScore || 0),
+                    soloScore: Math.max(existant.soloScore || 0, stats.soloScore || 0)
                 };
+                console.log(`🔧 Fusion doublon : "${pseudo}" → "${normalise}"`);
             }
         }
         classements = pseudosNormalises;
 
-        // 🔁 Recalcul du score global
-        for (const pseudo of Object.keys(classements)) {
-            const s = classements[pseudo];
-            s.soloScore = (s.soloScoreMonde || 0) + (s.soloScoreAfrique || 0);
-            s.niveau = Math.max(s.niveauMonde || 1, s.niveauAfrique || 1);
-        }
-
-        await fetch(JSONBIN_URL, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Master-Key': JSONBIN_API_KEY
-            },
-            body: JSON.stringify({ classements, abonnementsPush, meta })
-        });
-
         console.log(`📂 ${Object.keys(classements).length} joueurs chargés`);
         console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push chargés`);
-
+        console.log(`📅 Meta: 10h=${meta.derniereNotif10h || 'jamais'}, 16h=${meta.derniereNotif16h || 'jamais'}`);
     } catch (e) {
         console.error('❌ Erreur chargement jsonbin:', e.message);
         classements = {};
@@ -213,7 +133,7 @@ function sauvegarderDonnees() {
                 body: JSON.stringify({ classements, abonnementsPush, meta })
             });
             if (res.ok) {
-                console.log(`💾 Sauvegardé (${Object.keys(classements).length} joueurs)`);
+                console.log(`💾 Sauvegardé (${Object.keys(classements).length} joueurs, ${Object.keys(abonnementsPush).length} abonnés)`);
             } else {
                 console.error('❌ Erreur sauvegarde:', res.status);
             }
@@ -224,11 +144,15 @@ function sauvegarderDonnees() {
 }
 
 // ========================================
-// 📢 NOTIFICATIONS
+// 📢 FONCTIONS DE NOTIFICATION
 // ========================================
 async function envoyerNotification(pseudo, titre, message, url = '/') {
     const subscription = abonnementsPush[pseudo];
-    if (!subscription) return { success: false, error: 'Non abonné' };
+
+    if (!subscription) {
+        console.warn(`⚠️ Pas d'abonnement pour ${pseudo}`);
+        return { success: false, error: 'Non abonné' };
+    }
 
     try {
         await webpush.sendNotification(subscription, JSON.stringify({
@@ -238,11 +162,15 @@ async function envoyerNotification(pseudo, titre, message, url = '/') {
             badge: '/icons/icon-96.png',
             url: url
         }));
+        console.log(`📬 Notif envoyée à ${pseudo}`);
         return { success: true };
     } catch (error) {
+        console.error(`❌ Erreur push pour ${pseudo}: [${error.statusCode}] ${error.message}`);
+
         if (error.statusCode === 410 || error.statusCode === 404) {
             delete abonnementsPush[pseudo];
             sauvegarderDonnees();
+            console.log(`🗑️ Abonnement supprimé pour ${pseudo}`);
         }
         return { success: false, error: error.message };
     }
@@ -253,7 +181,10 @@ async function envoyerNotificationATous(titre, message, url = '/') {
     let erreurs = 0;
     const pseudos = Object.keys(abonnementsPush);
 
-    if (pseudos.length === 0) return { envoyes: 0, erreurs: 0, total: 0 };
+    if (pseudos.length === 0) {
+        console.warn('⚠️ Aucun abonné à notifier');
+        return { envoyes: 0, erreurs: 0, total: 0 };
+    }
 
     for (const pseudo of pseudos) {
         try {
@@ -274,23 +205,29 @@ async function envoyerNotificationATous(titre, message, url = '/') {
     }
 
     if (erreurs > 0) sauvegarderDonnees();
+
     console.log(`📬 Broadcast: ${envoyes} envoyés, ${erreurs} erreurs`);
     return { envoyes, erreurs, total: pseudos.length };
 }
 
 // ========================================
-// 🕐 HEURE ABIDJAN
+// 🕐 HEURE DE CÔTE D'IVOIRE (Abidjan, UTC+0)
 // ========================================
 function getHeureAbidjan() {
     const maintenant = new Date();
     const formatter = new Intl.DateTimeFormat('fr-FR', {
         timeZone: 'Africa/Abidjan',
-        hour: '2-digit', minute: '2-digit',
-        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
         hour12: false
     });
+
     const parts = formatter.formatToParts(maintenant);
     const get = (type) => parts.find(p => p.type === type)?.value;
+
     return {
         heure: parseInt(get('hour')),
         minute: parseInt(get('minute')),
@@ -299,29 +236,38 @@ function getHeureAbidjan() {
 }
 
 // ========================================
-// 🔔 NOTIFS AUTO
+// 🔔 NOTIFICATIONS À LA CONNEXION
 // ========================================
 async function verifierNotificationsJour() {
     if (envoiNotifEnCours) return;
     envoiNotifEnCours = true;
+
     try {
         const { heure, minute, jour } = getHeureAbidjan();
 
-        if ((heure > 10 || (heure === 10 && minute >= 0)) && meta.derniereNotif10h !== jour) {
+        if ((heure > 10 || (heure === 10 && minute >= 0))
+            && meta.derniereNotif10h !== jour) {
+
             meta.derniereNotif10h = jour;
             sauvegarderDonnees();
+
             const msg = getMessage('matin');
+            console.log(`⏰ [Connexion] Notif matinale (${jour} ${heure}h${minute}) : "${msg.titre}"`);
             await envoyerNotificationATous(msg.titre, msg.body, '/');
         }
 
-        if ((heure > 16 || (heure === 16 && minute >= 0)) && meta.derniereNotif16h !== jour) {
+        if ((heure > 16 || (heure === 16 && minute >= 0))
+            && meta.derniereNotif16h !== jour) {
+
             meta.derniereNotif16h = jour;
             sauvegarderDonnees();
+
             const msg = getMessage('apresMidi');
+            console.log(`⏰ [Connexion] Notif après-midi (${jour} ${heure}h${minute}) : "${msg.titre}"`);
             await envoyerNotificationATous(msg.titre, msg.body, '/');
         }
     } catch (e) {
-        console.error('❌ Erreur verif notifs:', e.message);
+        console.error('❌ Erreur verifierNotificationsJour:', e.message);
     } finally {
         envoiNotifEnCours = false;
     }
@@ -341,95 +287,119 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// 🔑 AUTHENTIFICATION (génère le JWT)
-app.post('/api/auth', (req, res) => {
-    const { pseudo } = req.body || {};
-    if (!pseudo || typeof pseudo !== 'string') {
-        return res.status(400).json({ error: 'Pseudo requis' });
-    }
-    const pseudoNormalise = normaliserPseudo(pseudo);
-    if (pseudoNormalise.length < 2 || pseudoNormalise.length > 20) {
-        return res.status(400).json({ error: 'Pseudo invalide (2-20 caractères)' });
-    }
-    const token = genererToken(pseudoNormalise);
-    console.log(`🔑 Token généré pour ${pseudoNormalise}`);
-    res.json({ success: true, token, pseudo: pseudoNormalise });
+app.get('/api/abonnes', (req, res) => {
+    res.json({
+        total: Object.keys(abonnementsPush).length,
+        pseudos: Object.keys(abonnementsPush)
+    });
 });
 
 app.post('/api/notifier', async (req, res) => {
     const { pseudo, titre, message, url, tous } = req.body;
+
     if (tous) {
         const result = await envoyerNotificationATous(titre, message, url);
         return res.json({ success: true, ...result });
     }
-    if (!pseudo) return res.status(400).json({ error: 'Pseudo manquant' });
-    const result = await envoyerNotification(normaliserPseudo(pseudo), titre, message, url);
-    if (result.success) res.json({ success: true });
-    else res.status(404).json({ error: result.error });
+
+    if (!pseudo) {
+        return res.status(400).json({ error: 'Pseudo manquant' });
+    }
+
+    const result = await envoyerNotification(pseudo, titre, message, url);
+
+    if (result.success) {
+        res.json({ success: true, message: `Notification envoyée à ${pseudo}` });
+    } else {
+        res.status(404).json({ error: result.error });
+    }
+});
+
+app.post('/api/test-cron', async (req, res) => {
+    console.log('🧪 Test manuel...');
+    const result = await envoyerNotificationATous(
+        '🎯 Test notification',
+        'Ceci est un test.'
+    );
+    res.json({ success: true, ...result });
+});
+
+app.post('/api/verifier-notifs', async (req, res) => {
+    await verifierNotificationsJour();
+    res.json({ success: true, meta });
+});
+
+app.get('/api/test-message/:type', async (req, res) => {
+    const { type } = req.params;
+    const msg = getMessage(type);
+    console.log(`🧪 Test message "${type}" : ${msg.titre}`);
+    const result = await envoyerNotificationATous(msg.titre, msg.body, '/');
+    res.json({ msg, result });
+});
+
+// 🔧 Endpoint admin pour nettoyer les doublons (à appeler une fois)
+app.post('/api/cleanup-doublons', async (req, res) => {
+    const avant = Object.keys(classements).length;
+
+    const pseudosNormalises = {};
+    const doublons = [];
+
+    for (const [pseudo, stats] of Object.entries(classements)) {
+        const normalise = normaliserPseudo(pseudo);
+        if (!pseudosNormalises[normalise]) {
+            pseudosNormalises[normalise] = stats;
+        } else {
+            const existant = pseudosNormalises[normalise];
+            pseudosNormalises[normalise] = {
+                victoires: Math.max(existant.victoires || 0, stats.victoires || 0),
+                defaites: Math.max(existant.defaites || 0, stats.defaites || 0),
+                egalites: Math.max(existant.egalites || 0, stats.egalites || 0),
+                parties: Math.max(existant.parties || 0, stats.parties || 0),
+                meilleurScore: Math.max(existant.meilleurScore || 0, stats.meilleurScore || 0),
+                soloScore: Math.max(existant.soloScore || 0, stats.soloScore || 0)
+            };
+            doublons.push({ avant: pseudo, apres: normalise });
+        }
+    }
+
+    classements = pseudosNormalises;
+    const apres = Object.keys(classements).length;
+
+    sauvegarderDonnees();
+
+    res.json({
+        success: true,
+        avant,
+        apres,
+        fusionnes: doublons
+    });
 });
 
 // ========================================
-// 🔐 MIDDLEWARE SOCKET (VÉRIFICATION JWT)
-// ========================================
-io.use((socket, next) => {
-    const token = socket.handshake.auth?.token;
-
-    if (!token) {
-        console.log(`🚫 Refusé (pas de token): ${socket.id}`);
-        return next(new Error('Token manquant'));
-    }
-
-    const payload = verifierToken(token);
-    if (!payload || !payload.pseudo) {
-        console.log(`🚫 Refusé (token invalide): ${socket.id}`);
-        return next(new Error('Token invalide'));
-    }
-
-    socket.pseudoVerifie = payload.pseudo;
-    next();
-});
-
-// ========================================
-// 🔌 SOCKET
+// 🔌 CONNEXION SOCKET
 // ========================================
 io.on('connection', (socket) => {
-    console.log(`🔗 Connecté: ${socket.id} (${socket.pseudoVerifie})`);
+    console.log(`🔗 Connecté: ${socket.id}`);
 
-    // ====== ENREGISTRER ======
-    socket.on('enregistrer', () => {
-        const pseudo = socket.pseudoVerifie;
+    socket.on('enregistrer', (data) => {
+        let { pseudo, niveau, score } = data;
         if (!pseudo) return;
 
-        if (!classements[pseudo]) {
-            classements[pseudo] = {
-                victoires: 0, defaites: 0, egalites: 0,
-                parties: 0, meilleurScore: 0,
-                soloScoreMonde: 0,
-                soloScoreAfrique: 0,
-                soloScore: 0,
-                niveauMonde: 1,
-                niveauAfrique: 1,
-                niveau: 1
-            };
-            sauvegarderDonnees();
-        }
+        // 🔧 Normalisation : une seule entrée par joueur, peu importe la casse
+        pseudo = normaliserPseudo(pseudo);
+        if (pseudo.length < 2) return;
 
-        const stats = classements[pseudo];
+        const stats = classements[pseudo] || {
+            victoires: 0, defaites: 0, egalites: 0,
+            parties: 0, meilleurScore: 0, soloScore: 0
+        };
+
         const existant = Object.values(joueurs).find(j => j.pseudo === pseudo);
-
-        stats.soloScoreMonde = stats.soloScoreMonde || 0;
-        stats.soloScoreAfrique = stats.soloScoreAfrique || 0;
-        stats.niveauMonde = stats.niveauMonde || 1;
-        stats.niveauAfrique = stats.niveauAfrique || 1;
-        stats.soloScore = stats.soloScoreMonde + stats.soloScoreAfrique;
-        stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
 
         joueurs[socket.id] = {
             pseudo,
-            niveau: stats.niveau,
-            niveauMonde: stats.niveauMonde,
-            niveauAfrique: stats.niveauAfrique,
-            score: stats.soloScore,
+            niveau: niveau || 1,
+            score: score || 0,
             enLigne: true,
             enDuel: false,
             salleId: null,
@@ -440,97 +410,52 @@ io.on('connection', (socket) => {
             meilleurScore: Math.max(existant?.meilleurScore || 0, stats.meilleurScore || 0)
         };
 
+        if (!classements[pseudo]) {
+            classements[pseudo] = { ...stats };
+            sauvegarderDonnees();
+        }
+
         io.emit('joueurs_en_ligne', getJoueursEnLigne());
         io.emit('classements', getClassements());
+        console.log(`✅ ${pseudo} (🏆 ${joueurs[socket.id].victoires}V, ⭐ ${stats.soloScore || 0})`);
 
-        socket.emit('mon_profil', {
-            pseudo,
-            niveau: stats.niveau,
-            niveauMonde: stats.niveauMonde,
-            niveauAfrique: stats.niveauAfrique,
-            soloScore: stats.soloScore,
-            soloScoreMonde: stats.soloScoreMonde,
-            soloScoreAfrique: stats.soloScoreAfrique,
-            victoires: stats.victoires || 0,
-            defaites: stats.defaites || 0,
-            parties: stats.parties || 0
-        });
-
-        console.log(`✅ ${pseudo} connecté (M:${stats.niveauMonde} / A:${stats.niveauAfrique})`);
-        verifierNotificationsJour().catch(e => console.error(e.message));
+        verifierNotificationsJour().catch(e =>
+            console.error('❌ Erreur notif connexion:', e.message)
+        );
     });
 
-    // ====== SOLO : MISE À JOUR SCORE ======
-    socket.on('solo_maj_score', (data) => {
+    // ========================================
+    // 📊 MISE À JOUR DU SCORE
+    // Mode 'set' : remplace la valeur (le client sait mieux)
+    // Mode par défaut : garde le max (protection contre triche)
+    // ========================================
+    socket.on('mettre_a_jour_score', (data) => {
         const joueur = joueurs[socket.id];
         if (!joueur) return;
-        if (!data || typeof data.scoreTotal !== 'number') return;
-        if (!Number.isFinite(data.scoreTotal)) return;
+        const { score, mode } = data;
 
-        const mode = data.mode === 'afrique' ? 'afrique' : 'monde';
+        if (typeof score !== 'number' || score < 0) return;
 
         if (!classements[joueur.pseudo]) {
             classements[joueur.pseudo] = {
                 victoires: 0, defaites: 0, egalites: 0,
-                parties: 0, meilleurScore: 0,
-                soloScoreMonde: 0,
-                soloScoreAfrique: 0,
-                soloScore: 0,
-                niveauMonde: 1,
-                niveauAfrique: 1,
-                niveau: 1
+                parties: 0, meilleurScore: 0, soloScore: 0
             };
         }
 
-        const stats = classements[joueur.pseudo];
-        stats.soloScoreMonde = stats.soloScoreMonde || 0;
-        stats.soloScoreAfrique = stats.soloScoreAfrique || 0;
-        stats.niveauMonde = stats.niveauMonde || 1;
-        stats.niveauAfrique = stats.niveauAfrique || 1;
+        const ancienScore = classements[joueur.pseudo].soloScore || 0;
 
-        const nouveauScore = Math.max(0, Math.floor(data.scoreTotal));
-        let ancien;
-
-        if (mode === 'afrique') {
-            ancien = stats.soloScoreAfrique;
-            if (nouveauScore <= ancien) return;
-            stats.soloScoreAfrique = nouveauScore;
-        } else {
-            ancien = stats.soloScoreMonde;
-            if (nouveauScore <= ancien) return;
-            stats.soloScoreMonde = nouveauScore;
+        // 🔧 Si mode === 'set', on remplace.
+        // Sinon on garde le max (protection).
+        if (mode === 'set' || score > ancienScore) {
+            classements[joueur.pseudo].soloScore = score;
+            joueur.score = score;
+            sauvegarderDonnees();
+            io.emit('classements', getClassements());
+            console.log(`📊 ${joueur.pseudo} : ${ancienScore} → ${score}${mode === 'set' ? ' (set)' : ''}`);
         }
-
-        // ✅ Mise à jour du niveau envoyé par le client (sans recalcul auto)
-        if (typeof data.niveau === 'number' && data.niveau > 0) {
-            if (mode === 'afrique') stats.niveauAfrique = data.niveau;
-            else stats.niveauMonde = data.niveau;
-        }
-
-        stats.soloScore = stats.soloScoreMonde + stats.soloScoreAfrique;
-        stats.niveau = Math.max(stats.niveauMonde, stats.niveauAfrique);
-
-        joueur.score = stats.soloScore;
-        joueur.niveau = stats.niveau;
-        joueur.niveauMonde = stats.niveauMonde;
-        joueur.niveauAfrique = stats.niveauAfrique;
-
-        sauvegarderDonnees();
-        io.emit('classements', getClassements());
-        io.emit('joueurs_en_ligne', getJoueursEnLigne());
-
-        socket.emit('solo_score_maj', {
-            soloScoreMonde: stats.soloScoreMonde,
-            soloScoreAfrique: stats.soloScoreAfrique,
-            soloScore: stats.soloScore,
-            niveauMonde: stats.niveauMonde,
-            niveauAfrique: stats.niveauAfrique
-        });
-
-        console.log(`📤 ${joueur.pseudo} [${mode}] : M:${stats.soloScoreMonde} / A:${stats.soloScoreAfrique}`);
     });
 
-    // ====== DEMANDES ======
     socket.on('demander_joueurs', () => {
         socket.emit('joueurs_en_ligne', getJoueursEnLigne());
     });
@@ -539,28 +464,83 @@ io.on('connection', (socket) => {
         socket.emit('classements', getClassements());
     });
 
-    // ====== PUSH ======
+    // ========================================
+    // 🔔 ENREGISTRER UN ABONNEMENT PUSH
+    // ========================================
     socket.on('enregistrer_push', (data) => {
-        const { subscription } = data;
-        const pseudo = socket.pseudoVerifie;
+        let { subscription, pseudo } = data;
 
-        if (!subscription || !pseudo) return;
+        if (!subscription || !pseudo) {
+            console.warn('⚠️ Abonnement push invalide');
+            return;
+        }
+
+        // 🔧 Normaliser le pseudo
+        pseudo = normaliserPseudo(pseudo);
 
         const estNouveau = !abonnementsPush[pseudo];
         abonnementsPush[pseudo] = subscription;
         sauvegarderDonnees();
 
         console.log(`📬 Push ${estNouveau ? 'enregistré' : 'mis à jour'} pour ${pseudo}`);
+
         socket.emit('push_enregistre', { success: true });
+
+        if (estNouveau) {
+            setTimeout(() => {
+                envoyerNotification(
+                    pseudo,
+                    '🎯 Bienvenue sur AryseX Quiz !',
+                    'Tu recevras les nouveaux quiz et défis. Bon jeu ! 🚀'
+                );
+            }, 2000);
+        }
     });
 
-    // ====== DUEL ======
+    // ========================================
+    // 📢 NOTIFICATION DEPUIS UN CLIENT
+    // ========================================
+    socket.on('envoyer_notification', async (data) => {
+        const { pseudo, titre, message, url } = data;
+
+        if (!pseudo) {
+            socket.emit('erreur', { message: 'Pseudo manquant' });
+            return;
+        }
+
+        const result = await envoyerNotification(normaliserPseudo(pseudo), titre, message, url);
+
+        if (result.success) {
+            socket.emit('notification_envoyee', { success: true });
+        } else {
+            socket.emit('erreur', { message: result.error });
+        }
+    });
+
+    // ========================================
+    // 💬 CHAT
+    // ========================================
+    socket.on('envoyer_message', async (data) => {
+        const { destinataire, message } = data;
+        const expediteur = joueurs[socket.id]?.pseudo;
+
+        if (!expediteur || !destinataire || !message) return;
+
+        await envoyerNotification(
+            normaliserPseudo(destinataire),
+            `💬 ${expediteur}`,
+            message
+        );
+    });
+
+    // ========================================
+    // ⚔️ INVITATION DUEL
+    // ========================================
     socket.on('inviter_duel', (data) => {
         const { adversaireId, questions } = data;
         const joueur = joueurs[socket.id];
         const adversaire = joueurs[adversaireId];
 
-        if (!joueur) return;
         if (!adversaire || !adversaire.enLigne || adversaire.enDuel) {
             socket.emit('erreur', { message: 'Adversaire indisponible' });
             return;
@@ -569,7 +549,6 @@ io.on('connection', (socket) => {
             socket.emit('erreur', { message: 'Vous êtes déjà en duel' });
             return;
         }
-        if (!Array.isArray(questions) || questions.length === 0 || questions.length > 20) return;
 
         const invitationId = `invit_${Date.now()}_${socket.id}`;
         invitations[invitationId] = {
@@ -577,11 +556,7 @@ io.on('connection', (socket) => {
             inviteurId: socket.id,
             inviteurPseudo: joueur.pseudo,
             adversaireId,
-            questions: questions.map(q => ({
-                question: q.question,
-                correct: q.correct,
-                options: q.options
-            })),
+            questions: questions || [],
             timestamp: Date.now()
         };
 
@@ -591,7 +566,22 @@ io.on('connection', (socket) => {
             inviteurId: socket.id
         });
 
-        envoyerNotification(adversaire.pseudo, '⚔️ Duel en attente', `${joueur.pseudo} te défie !`);
+        const messagesDuel = [
+            `⚔️ ${joueur.pseudo} te défie ! T'as peur ou quoi ? 😏`,
+            `🔥 ${joueur.pseudo} veut ta peau en duel. Tu acceptes ?`,
+            `👊 ${joueur.pseudo} t'attend. Le perdant paie le resto 😎`,
+            `💘 ${joueur.pseudo} te lance un défi. Réponds, ne fuis pas !`,
+            `🎯 Duel ! ${joueur.pseudo} vs toi. Ouvre l'app pour voir qui gère.`,
+            `😤 ${joueur.pseudo} se la raconte. Fais-le taire en duel !`
+        ];
+        const notifDuel = messagesDuel[Math.floor(Math.random() * messagesDuel.length)];
+
+        envoyerNotification(
+            adversaire.pseudo,
+            '⚔️ Duel en attente',
+            notifDuel
+        );
+
         console.log(`📨 ${joueur.pseudo} → ${adversaire.pseudo}`);
     });
 
@@ -612,6 +602,19 @@ io.on('connection', (socket) => {
                 io.to(inviteurId).emit('invitation_refusee', {
                     joueur: adversaire?.pseudo || 'Adversaire'
                 });
+
+                const refusMsgs = [
+                    `💔 ${adversaire?.pseudo || 'L\'adversaire'} a refusé. Il a peur 😏`,
+                    `😅 ${adversaire?.pseudo || 'L\'adversaire'} s'est dégonflé !`,
+                    `🚪 ${adversaire?.pseudo || 'L\'adversaire'} a fui le duel…`
+                ];
+                const refusMsg = refusMsgs[Math.floor(Math.random() * refusMsgs.length)];
+
+                envoyerNotification(
+                    inviteur.pseudo,
+                    '❌ Duel refusé',
+                    refusMsg
+                );
             }
             return;
         }
@@ -629,34 +632,46 @@ io.on('connection', (socket) => {
             scores: { [inviteurId]: 0, [adversaireId]: 0 },
             reponses: { [inviteurId]: 0, [adversaireId]: 0 },
             dejaRepondu: { [inviteurId]: new Set(), [adversaireId]: new Set() },
+            indexQuestion: 0,
             terminee: false,
             termines: {}
         };
 
         joueurs[inviteurId].enDuel = true;
+        joueurs[inviteurId].salleId = salleId;
         joueurs[adversaireId].enDuel = true;
+        joueurs[adversaireId].salleId = salleId;
 
         io.to(inviteurId).emit('demarrer_duel', {
             salleId,
             adversaire: adversaire.pseudo,
-            questions: invitation.questions
+            questions: invitation.questions,
+            estCreateur: true
         });
         io.to(adversaireId).emit('demarrer_duel', {
             salleId,
             adversaire: inviteur.pseudo,
-            questions: invitation.questions
+            questions: invitation.questions,
+            estCreateur: false
         });
 
         io.emit('joueurs_en_ligne', getJoueursEnLigne());
+        console.log(`⚔️ ${inviteur.pseudo} vs ${adversaire.pseudo}`);
     });
 
+    // ========================================
+    // ✅ VALIDATION SERVEUR DES RÉPONSES DUEL
+    // ========================================
     socket.on('reponse_duel', (data) => {
         const { salleId, indexQuestion, reponse, tempsRestant } = data;
         const salle = salles[salleId];
         if (!salle || salle.terminee) return;
+
         if (socket.id !== salle.joueur1 && socket.id !== salle.joueur2) return;
 
-        if (!salle.dejaRepondu[socket.id]) salle.dejaRepondu[socket.id] = new Set();
+        if (!salle.dejaRepondu[socket.id]) {
+            salle.dejaRepondu[socket.id] = new Set();
+        }
         if (salle.dejaRepondu[socket.id].has(indexQuestion)) return;
         salle.dejaRepondu[socket.id].add(indexQuestion);
 
@@ -664,14 +679,16 @@ io.on('connection', (socket) => {
         if (!question) return;
 
         let scoreGagne = 0;
-        if (reponse === question.correct) {
+        const bonneReponse = (reponse === question.correct);
+
+        if (bonneReponse) {
             const temps = Math.max(0, Math.min(10, tempsRestant || 0));
             const bonus = Math.max(0, Math.floor(temps / 3) * 5);
             scoreGagne = 10 + bonus;
-            salle.reponses[socket.id]++;
+            salle.reponses[socket.id] = (salle.reponses[socket.id] || 0) + 1;
         }
 
-        salle.scores[socket.id] += scoreGagne;
+        salle.scores[socket.id] = (salle.scores[socket.id] || 0) + scoreGagne;
 
         const adversaireId = salle.joueur1 === socket.id ? salle.joueur2 : salle.joueur1;
         io.to(adversaireId).emit('adversaire_repondu', {
@@ -681,7 +698,9 @@ io.on('connection', (socket) => {
 
         socket.emit('mon_score_duel', {
             score: salle.scores[socket.id],
-            bonnes: salle.reponses[socket.id]
+            bonnes: salle.reponses[socket.id],
+            indexQuestion: indexQuestion,
+            correcte: bonneReponse
         });
     });
 
@@ -716,50 +735,67 @@ io.on('connection', (socket) => {
         const joueur2 = joueurs[salle.joueur2];
 
         if (joueur1 && joueur2) {
-            joueur1.parties = (joueur1.parties || 0) + 1;
-            joueur2.parties = (joueur2.parties || 0) + 1;
+            joueur1.parties++;
+            joueur2.parties++;
 
             if (gagnantId === salle.joueur1) {
-                joueur1.victoires = (joueur1.victoires || 0) + 1;
-                joueur2.defaites = (joueur2.defaites || 0) + 1;
+                joueur1.victoires++;
+                joueur2.defaites++;
+                joueur1.meilleurScore = Math.max(joueur1.meilleurScore, score1);
             } else if (gagnantId === salle.joueur2) {
-                joueur2.victoires = (joueur2.victoires || 0) + 1;
-                joueur1.defaites = (joueur1.defaites || 0) + 1;
+                joueur2.victoires++;
+                joueur1.defaites++;
+                joueur2.meilleurScore = Math.max(joueur2.meilleurScore, score2);
             } else {
-                joueur1.egalites = (joueur1.egalites || 0) + 1;
-                joueur2.egalites = (joueur2.egalites || 0) + 1;
+                joueur1.egalites++;
+                joueur2.egalites++;
             }
 
-            if (!classements[joueur1.pseudo]) classements[joueur1.pseudo] = {};
-            if (!classements[joueur2.pseudo]) classements[joueur2.pseudo] = {};
-
-            Object.assign(classements[joueur1.pseudo], {
+            classements[joueur1.pseudo] = {
                 victoires: joueur1.victoires,
                 defaites: joueur1.defaites,
                 egalites: joueur1.egalites,
-                parties: joueur1.parties
-            });
-            Object.assign(classements[joueur2.pseudo], {
+                parties: joueur1.parties,
+                meilleurScore: joueur1.meilleurScore,
+                soloScore: classements[joueur1.pseudo]?.soloScore || 0
+            };
+            classements[joueur2.pseudo] = {
                 victoires: joueur2.victoires,
                 defaites: joueur2.defaites,
                 egalites: joueur2.egalites,
-                parties: joueur2.parties
-            });
+                parties: joueur2.parties,
+                meilleurScore: joueur2.meilleurScore,
+                soloScore: classements[joueur2.pseudo]?.soloScore || 0
+            };
 
             sauvegarderDonnees();
+
+            if (gagnantId === salle.joueur1) {
+                envoyerNotification(joueur1.pseudo, '🏆 Victoire !', `Tu as battu ${joueur2.pseudo} ${score1}-${score2} 🎉`);
+                envoyerNotification(joueur2.pseudo, '💔 Défaite', `${joueur1.pseudo} t'a battu ${score2}-${score1}. Revanche ? 😤`);
+            } else if (gagnantId === salle.joueur2) {
+                envoyerNotification(joueur2.pseudo, '🏆 Victoire !', `Tu as battu ${joueur1.pseudo} ${score2}-${score1} 🎉`);
+                envoyerNotification(joueur1.pseudo, '💔 Défaite', `${joueur2.pseudo} t'a battu ${score1}-${score2}. Revanche ? 😤`);
+            } else {
+                envoyerNotification(joueur1.pseudo, '🤝 Égalité !', `Match nul ${score1}-${score2} contre ${joueur2.pseudo}`);
+                envoyerNotification(joueur2.pseudo, '🤝 Égalité !', `Match nul ${score2}-${score1} contre ${joueur1.pseudo}`);
+            }
+
+            console.log(`🏆 ${joueur1.pseudo}(${joueur1.victoires}V) vs ${joueur2.pseudo}(${joueur2.victoires}V)`);
         }
 
         const resultats = {
             joueur1: { pseudo: joueur1?.pseudo || 'J1', score: score1, reponses: salle.reponses[salle.joueur1] || 0 },
             joueur2: { pseudo: joueur2?.pseudo || 'J2', score: score2, reponses: salle.reponses[salle.joueur2] || 0 },
-            gagnant: gagnantId ? joueurs[gagnantId]?.pseudo : 'Égalité'
+            gagnant: gagnantId ? joueurs[gagnantId]?.pseudo : 'Égalité',
+            statut: gagnantId ? 'victoire' : 'egalite'
         };
 
         io.to(salle.joueur1).emit('fin_duel', resultats);
         io.to(salle.joueur2).emit('fin_duel', resultats);
 
-        if (joueurs[salle.joueur1]) joueurs[salle.joueur1].enDuel = false;
-        if (joueurs[salle.joueur2]) joueurs[salle.joueur2].enDuel = false;
+        if (joueurs[salle.joueur1]) { joueurs[salle.joueur1].enDuel = false; joueurs[salle.joueur1].salleId = null; }
+        if (joueurs[salle.joueur2]) { joueurs[salle.joueur2].enDuel = false; joueurs[salle.joueur2].salleId = null; }
 
         setTimeout(() => { delete salles[salleId]; }, 30000);
 
@@ -767,16 +803,10 @@ io.on('connection', (socket) => {
         io.emit('classements', getClassements());
     }
 
-    // ====== HELPERS ======
     function getClassements() {
         const result = [];
         for (const [pseudo, stats] of Object.entries(classements)) {
             const enLigne = Object.values(joueurs).some(j => j.pseudo === pseudo && j.enLigne);
-            const monde = stats.soloScoreMonde || 0;
-            const afrique = stats.soloScoreAfrique || 0;
-            const total = monde + afrique;
-            const nivM = stats.niveauMonde || 1;
-            const nivA = stats.niveauAfrique || 1;
             result.push({
                 pseudo,
                 victoires: stats.victoires || 0,
@@ -784,12 +814,7 @@ io.on('connection', (socket) => {
                 egalites: stats.egalites || 0,
                 parties: stats.parties || 0,
                 meilleurScore: stats.meilleurScore || 0,
-                soloScoreMonde: monde,
-                soloScoreAfrique: afrique,
-                soloScore: total,
-                niveau: Math.max(nivM, nivA),
-                niveauMonde: nivM,
-                niveauAfrique: nivA,
+                soloScore: stats.soloScore || 0,
                 enLigne,
                 winRate: stats.parties > 0 ? Math.round((stats.victoires / stats.parties) * 100) : 0
             });
@@ -806,20 +831,11 @@ io.on('connection', (socket) => {
         for (const [id, data] of Object.entries(joueurs)) {
             if (data.enLigne && !data.enDuel) {
                 const stats = classements[data.pseudo] || {};
-                const monde = stats.soloScoreMonde || 0;
-                const afrique = stats.soloScoreAfrique || 0;
-                const total = monde + afrique;
-                const nivM = stats.niveauMonde || 1;
-                const nivA = stats.niveauAfrique || 1;
                 result.push({
                     id,
                     pseudo: data.pseudo,
-                    niveau: Math.max(nivM, nivA),
-                    niveauMonde: nivM,
-                    niveauAfrique: nivA,
-                    score: total,
-                    scoreMonde: monde,
-                    scoreAfrique: afrique,
+                    niveau: data.niveau,
+                    score: data.score,
                     victoires: stats.victoires || 0,
                     defaites: stats.defaites || 0,
                     parties: stats.parties || 0
@@ -829,7 +845,6 @@ io.on('connection', (socket) => {
         return result;
     }
 
-    // ====== DISCONNECT ======
     socket.on('disconnect', () => {
         const joueur = joueurs[socket.id];
         if (joueur) {
@@ -842,6 +857,24 @@ io.on('connection', (socket) => {
             io.emit('classements', getClassements());
         }
     });
+
+    socket.on('reconnecter', (data) => {
+        let { pseudo } = data;
+        if (pseudo) {
+            pseudo = normaliserPseudo(pseudo);
+            for (const [id, j] of Object.entries(joueurs)) {
+                if (j.pseudo === pseudo) {
+                    joueurs[id].enLigne = false;
+                    delete joueurs[id];
+                }
+            }
+            socket.emit('enregistrer', {
+                pseudo,
+                niveau: joueurs[socket.id]?.niveau || 1,
+                score: joueurs[socket.id]?.score || 0
+            });
+        }
+    });
 });
 
 // ========================================
@@ -851,10 +884,14 @@ const PORT = process.env.PORT || 3000;
 
 chargerDonnees().then(() => {
     server.listen(PORT, () => {
-        console.log(`🚀 Serveur sécurisé sur ${PORT}`);
+        console.log(`🚀 Serveur sur ${PORT}`);
         console.log(`📊 ${Object.keys(classements).length} joueurs chargés`);
-        console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push`);
-        console.log(`🔐 JWT TTL: ${JWT_TTL}`);
-        console.log(`🌐 Origines autorisées: ${ORIGINES_AUTORISEES.join(', ')}`);
+        console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push chargés`);
+        console.log(`📅 Meta: 10h=${meta.derniereNotif10h || 'jamais'}, 16h=${meta.derniereNotif16h || 'jamais'}`);
+        console.log(`🔔 VAPID configuré: ${VAPID_PUBLIC.substring(0, 20)}...`);
+        console.log(`🕐 Heure actuelle Abidjan: ${JSON.stringify(getHeureAbidjan())}`);
+        console.log('✅ Notifications fun déclenchées à la 1ère connexion après 10h/16h');
+        console.log('🎯 Endpoints test : /api/test-message/matin | crush | potes | argent | vendredi | weekend | relance');
+        console.log('🧹 Endpoint cleanup : POST /api/cleanup-doublons');
     });
 });
