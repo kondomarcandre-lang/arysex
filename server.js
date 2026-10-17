@@ -1,6 +1,7 @@
 // ========================================
 // 🔥 SERVEUR - AryseX Quiz Duel
 // Score unique + JWT + validation serveur
+// Niveau calculé automatiquement (1 niveau / 800 pts)
 // ========================================
 
 const express = require('express');
@@ -80,6 +81,14 @@ function normaliserPseudo(pseudo) {
 }
 
 // ========================================
+// 🎯 CALCUL DU NIVEAU À PARTIR DU SCORE
+// 1 niveau tous les 800 points
+// ========================================
+function calculerNiveau(soloScore) {
+    return 1 + Math.floor((soloScore || 0) / 800);
+}
+
+// ========================================
 // 📦 EN MÉMOIRE
 // ========================================
 const joueurs = {};
@@ -102,11 +111,6 @@ const JSONBIN_BIN_ID = process.env.JSONBIN_BIN_ID || 'TON_BIN_ID_ICI';
 const JSONBIN_API_KEY = process.env.JSONBIN_API_KEY || 'TA_MASTER_KEY_ICI';
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 
-// ========================================
-// 🔄 MIGRATION : un seul score + un seul niveau
-// ========================================
-// Ce bloc récupère les anciens champs séparés et les remet dans soloScore / niveau.
-// À chaque sauvegarde, l'ancien format disparaît automatiquement.
 async function chargerDonnees() {
     try {
         const res = await fetch(`${JSONBIN_URL}/latest`, {
@@ -129,13 +133,13 @@ async function chargerDonnees() {
             meta = { derniereNotif10h: null, derniereNotif16h: null };
         }
 
-        // 🔧 Normalisation + migration vers format simple
+        // 🔧 Normalisation + migration (récupère les anciens scores séparés)
         const pseudosNormalises = {};
         for (const [pseudo, stats] of Object.entries(classements)) {
             const normalise = normaliserPseudo(pseudo);
 
             // Récupérer le meilleur score possible
-            // (ancien format simple OU nouveau format Monde/Afrique)
+            // (ancien format simple OU ancien format Monde/Afrique)
             let soloScore = 0;
             if (typeof stats.soloScore === 'number' && stats.soloScore > 0) {
                 soloScore = stats.soloScore;
@@ -145,15 +149,6 @@ async function chargerDonnees() {
                 soloScore = Math.max(monde, afrique);
             }
 
-            let niveau = 1;
-            if (typeof stats.niveau === 'number' && stats.niveau > 1) {
-                niveau = stats.niveau;
-            } else {
-                const nMonde = stats.niveauMonde || 1;
-                const nAfrique = stats.niveauAfrique || 1;
-                niveau = Math.max(nMonde, nAfrique);
-            }
-
             const corrigees = {
                 victoires: stats.victoires || 0,
                 defaites: stats.defaites || 0,
@@ -161,29 +156,36 @@ async function chargerDonnees() {
                 parties: stats.parties || 0,
                 meilleurScore: stats.meilleurScore || 0,
                 soloScore,
-                niveau
+                niveau: calculerNiveau(soloScore)
             };
 
             if (!pseudosNormalises[normalise]) {
                 pseudosNormalises[normalise] = corrigees;
             } else {
                 const e = pseudosNormalises[normalise];
+                const maxScore = Math.max(e.soloScore, corrigees.soloScore);
                 pseudosNormalises[normalise] = {
                     victoires: Math.max(e.victoires, corrigees.victoires),
                     defaites: Math.max(e.defaites, corrigees.defaites),
                     egalites: Math.max(e.egalites, corrigees.egalites),
                     parties: Math.max(e.parties, corrigees.parties),
                     meilleurScore: Math.max(e.meilleurScore, corrigees.meilleurScore),
-                    soloScore: Math.max(e.soloScore, corrigees.soloScore),
-                    niveau: Math.max(e.niveau, corrigees.niveau)
+                    soloScore: maxScore,
+                    niveau: calculerNiveau(maxScore)
                 };
                 console.log(`🔧 Fusion doublon : "${pseudo}" → "${normalise}"`);
             }
         }
         classements = pseudosNormalises;
 
+        // 🎯 Recalculer le niveau de chaque joueur à partir de son score
+        for (const pseudo of Object.keys(classements)) {
+            const s = classements[pseudo];
+            s.niveau = calculerNiveau(s.soloScore || 0);
+        }
+        console.log('🎯 Niveaux recalculés à partir des scores (1 niveau / 800 pts)');
+
         // 💾 Sauvegarder immédiatement pour figer le nouveau format
-        // (comme ça, plus d'ambiguïté au prochain redémarrage)
         await fetch(JSONBIN_URL, {
             method: 'PUT',
             headers: {
@@ -460,7 +462,7 @@ io.on('connection', (socket) => {
 
         joueurs[socket.id] = {
             pseudo,
-            niveau: stats.niveau || 1,
+            niveau: calculerNiveau(stats.soloScore || 0),
             score: stats.soloScore || 0,
             enLigne: true,
             enDuel: false,
@@ -478,14 +480,14 @@ io.on('connection', (socket) => {
 
         socket.emit('mon_profil', {
             pseudo,
-            niveau: stats.niveau || 1,
+            niveau: calculerNiveau(stats.soloScore || 0),
             soloScore: stats.soloScore || 0,
             victoires: stats.victoires || 0,
             defaites: stats.defaites || 0,
             parties: stats.parties || 0
         });
 
-        console.log(`✅ ${pseudo} connecté (niveau ${stats.niveau || 1}, ${stats.soloScore || 0} pts)`);
+        console.log(`✅ ${pseudo} connecté (niveau ${calculerNiveau(stats.soloScore || 0)}, ${stats.soloScore || 0} pts)`);
 
         verifierNotificationsJour().catch(e =>
             console.error('❌ Erreur notif connexion:', e.message)
@@ -585,21 +587,22 @@ io.on('connection', (socket) => {
 
         const stats = classements[joueur.pseudo];
 
-        // Cumul
+        // Cumul du score
         const ancienScore = stats.soloScore || 0;
         const nouveauScore = ancienScore + partie.score;
         stats.soloScore = nouveauScore;
 
-        // Validation niveau (10/10 → +1)
-        let niveauChange = false;
-        if (partie.bonnes === 10 && partie.niveau === (stats.niveau || 1)) {
-            stats.niveau = (stats.niveau || 1) + 1;
-            niveauChange = true;
-            console.log(`🎉 ${joueur.pseudo} passe niveau ${stats.niveau}`);
-        }
+        // 🎯 Le niveau est recalculé à partir du score
+        const ancienNiveau = stats.niveau || 1;
+        const nouveauNiveau = calculerNiveau(nouveauScore);
+        const niveauChange = nouveauNiveau > ancienNiveau;
+        stats.niveau = nouveauNiveau;
+        joueur.score = nouveauScore;
+        joueur.niveau = nouveauNiveau;
 
-        joueur.score = stats.soloScore;
-        joueur.niveau = stats.niveau;
+        if (niveauChange) {
+            console.log(`🎉 ${joueur.pseudo} passe niveau ${nouveauNiveau} !`);
+        }
 
         sauvegarderDonnees();
         io.emit('classements', getClassements());
@@ -610,11 +613,11 @@ io.on('connection', (socket) => {
             scoreTotal: nouveauScore,
             bonnes: partie.bonnes,
             mauvaises: partie.mauvaises,
-            niveau: stats.niveau || 1,
+            niveau: nouveauNiveau,
             niveauChange
         });
 
-        console.log(`📈 ${joueur.pseudo} : +${partie.score} pts (total ${nouveauScore}, niveau ${stats.niveau})`);
+        console.log(`📈 ${joueur.pseudo} : +${partie.score} pts (total ${nouveauScore}, niveau ${nouveauNiveau})`);
 
         joueur.partieSolo = null;
     });
@@ -923,7 +926,7 @@ io.on('connection', (socket) => {
                 parties: stats.parties || 0,
                 meilleurScore: stats.meilleurScore || 0,
                 soloScore: stats.soloScore || 0,
-                niveau: stats.niveau || 1,
+                niveau: calculerNiveau(stats.soloScore || 0),
                 enLigne,
                 winRate: stats.parties > 0 ? Math.round((stats.victoires / stats.parties) * 100) : 0
             });
@@ -940,11 +943,12 @@ io.on('connection', (socket) => {
         for (const [id, data] of Object.entries(joueurs)) {
             if (data.enLigne && !data.enDuel) {
                 const stats = classements[data.pseudo] || {};
+                const score = stats.soloScore || 0;
                 result.push({
                     id,
                     pseudo: data.pseudo,
-                    niveau: stats.niveau || 1,
-                    score: stats.soloScore || 0,
+                    niveau: calculerNiveau(score),
+                    score,
                     victoires: stats.victoires || 0,
                     defaites: stats.defaites || 0,
                     parties: stats.parties || 0
@@ -980,6 +984,7 @@ chargerDonnees().then(() => {
         console.log(`📊 ${Object.keys(classements).length} joueurs chargés`);
         console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push`);
         console.log(`🔐 JWT TTL: ${JWT_TTL}`);
+        console.log(`🎯 Niveau : 1 niveau tous les 800 points`);
         console.log(`🌐 Origines autorisées: ${ORIGINES_AUTORISEES.join(', ')}`);
     });
 });
