@@ -1,6 +1,5 @@
 // ========================================
-// 🔥 MAIN.JS - Scores séparés Monde / Afrique
-// Affichage côte à côte des niveaux
+// 🔥 MAIN.JS - Scores et Niveaux séparés (Monde / Afrique)
 // ========================================
 
 (function () {
@@ -226,7 +225,11 @@
     let scoreMonde = 0;
     let scoreAfrique = 0;
     let scoreTotal = 0;
-    let niveauActuel = 1;
+
+    // 🔥 Niveaux séparés
+    let niveauMonde = 1;
+    let niveauAfrique = 1;
+    let niveauActuel = 1; // Sert pour l'affichage global ou le mode actuel
 
     let questionsDejaPosees = new Set();
     let reponsesParNiveau = {};
@@ -268,8 +271,20 @@
     // ========================================
     // HELPERS SCORE
     // ========================================
+    function calculerNiveauLocal(score) {
+        return 1 + Math.floor((score || 0) / 800);
+    }
+
     function recalculerTotal() {
         scoreTotal = (scoreMonde || 0) + (scoreAfrique || 0);
+        
+        // On recalcule les niveaux pour chaque mode
+        niveauMonde = calculerNiveauLocal(scoreMonde);
+        niveauAfrique = calculerNiveauLocal(scoreAfrique);
+        
+        // Le niveauActuel global devient le MAX des deux, ou celui du mode en cours
+        niveauActuel = modeActuel === 'afrique' ? niveauAfrique : niveauMonde;
+        
         return scoreTotal;
     }
 
@@ -288,6 +303,8 @@
     function sauvegarderPartie() {
         try {
             localStorage.setItem('quiz_niveau', niveauActuel);
+            localStorage.setItem('quiz_niveau_monde', niveauMonde);
+            localStorage.setItem('quiz_niveau_afrique', niveauAfrique);
             localStorage.setItem('quiz_score_monde', scoreMonde);
             localStorage.setItem('quiz_score_afrique', scoreAfrique);
             localStorage.setItem('quiz_score', scoreTotal);
@@ -299,6 +316,8 @@
     function chargerPartie() {
         try {
             const savedNiveau = localStorage.getItem('quiz_niveau');
+            const savedNiveauMonde = localStorage.getItem('quiz_niveau_monde');
+            const savedNiveauAfrique = localStorage.getItem('quiz_niveau_afrique');
             const savedMonde = localStorage.getItem('quiz_score_monde');
             const savedAfrique = localStorage.getItem('quiz_score_afrique');
             const savedScore = localStorage.getItem('quiz_score');
@@ -306,6 +325,9 @@
             const savedQuestions = localStorage.getItem('quiz_questions');
 
             if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
+            if (savedNiveauMonde) niveauMonde = parseInt(savedNiveauMonde, 10);
+            if (savedNiveauAfrique) niveauAfrique = parseInt(savedNiveauAfrique, 10);
+            
             if (savedMonde) scoreMonde = parseInt(savedMonde, 10);
             if (savedAfrique) scoreAfrique = parseInt(savedAfrique, 10);
 
@@ -417,7 +439,8 @@
         if (profilScore) profilScore.textContent = scoreTotal;
         if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
 
-        const stats = reponsesParNiveau[niveauActuel] || { correct: 0, incorrect: 0 };
+        // 🔥 Pour les stats du niveau, on utilise le score du niveau en cours (scoreNiveau)
+        const stats = reponsesParNiveau[scoreNiveau] || { correct: 0, incorrect: 0 };
         if (statsCorrect) statsCorrect.textContent = `✅ ${stats.correct}`;
         if (statsIncorrect) statsIncorrect.textContent = `❌ ${stats.incorrect}`;
 
@@ -445,8 +468,12 @@
     }
 
     function mettreAJourInterface() {
-        if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
-        if (profilNiveau) profilNiveau.textContent = niveauActuel;
+        // 🔥 On affiche le niveau du mode en cours (Monde ou Afrique)
+        const niveauAffiche = modeActuel === 'afrique' ? niveauAfrique : niveauMonde;
+        
+        if (niveauActuelSpan) niveauActuelSpan.textContent = niveauAffiche;
+        if (profilNiveau) profilNiveau.textContent = niveauAffiche;
+        
         if (scoreTotalSpan) scoreTotalSpan.textContent = scoreTotal;
         if (profilScore) profilScore.textContent = scoreTotal;
         mettreAJourRang();
@@ -764,8 +791,9 @@
             scoreNiveau = 0;
             reponseDonnee = false;
 
-            if (niveauActuelSpan) niveauActuelSpan.textContent = niveauActuel;
-            if (profilNiveau) profilNiveau.textContent = niveauActuel;
+            const niveauAffiche = modeActuel === 'afrique' ? niveauAfrique : niveauMonde;
+            if (niveauActuelSpan) niveauActuelSpan.textContent = niveauAffiche;
+            if (profilNiveau) profilNiveau.textContent = niveauAffiche;
 
             if (questionsActuelles[0]?.categorie && categorieSpan) {
                 categorieSpan.textContent = questionsActuelles[0].categorie;
@@ -779,7 +807,7 @@
                 socket.emit('solo_demarrer', {
                     questions: questionsActuelles,
                     mode: modeActuel,
-                    niveau: niveauActuel
+                    niveau: niveauAffiche // Envoie le niveau spécifique au mode
                 });
             } else {
                 console.warn('⚠️ Socket non connecté - mode hors-ligne');
@@ -971,7 +999,10 @@
             sauvegarderDefi();
             arreterTimer();
 
-            console.log(`🔄 Mode changé : ${mode} (Monde=${scoreMonde}, Afrique=${scoreAfrique}, Total=${scoreTotal})`);
+            // 🔥 Mettre à jour l'affichage du niveau selon le mode choisi
+            mettreAJourInterface();
+
+            console.log(`🔄 Mode changé : ${mode} (Monde: Niv ${niveauMonde} - Afrique: Niv ${niveauAfrique})`);
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
@@ -1276,7 +1307,8 @@
 
                 const serveurMonde = profil.soloScoreMonde || 0;
                 const serveurAfrique = profil.soloScoreAfrique || 0;
-                const niveauServeur = profil.niveau || 1;
+                const niveauServeurMonde = profil.niveauMonde || 1;
+                const niveauServeurAfrique = profil.niveauAfrique || 1;
 
                 if (serveurMonde > scoreMonde) {
                     scoreMonde = serveurMonde;
@@ -1290,17 +1322,17 @@
                     socket.emit('solo_maj_score', { scoreTotal: scoreAfrique, mode: 'afrique' });
                 }
 
-                recalculerTotal();
+                // 🔥 Synchronisation des niveaux séparés
+                niveauMonde = Math.max(niveauMonde, niveauServeurMonde);
+                niveauAfrique = Math.max(niveauAfrique, niveauServeurAfrique);
 
-                if (niveauServeur > niveauActuel) {
-                    niveauActuel = niveauServeur;
-                }
+                recalculerTotal();
 
                 sauvegarderPartie();
                 mettreAJourInterface();
                 mettreAJourStats();
 
-                console.log(`👤 Niveaux : 🌎 ${profil.niveauMonde || 1} / 🌍 ${profil.niveauAfrique || 1} | Total ${scoreTotal}`);
+                console.log(`👤 Niveaux : 🌎 ${niveauMonde} / 🌍 ${niveauAfrique} | Total ${scoreTotal}`);
             });
 
             // Confirmation de mise à jour du score
@@ -1309,8 +1341,12 @@
 
                 if (typeof data.soloScoreMonde === 'number') scoreMonde = data.soloScoreMonde;
                 if (typeof data.soloScoreAfrique === 'number') scoreAfrique = data.soloScoreAfrique;
+                
+                // 🔥 Synchronisation des niveaux séparés
+                if (typeof data.niveauMonde === 'number') niveauMonde = data.niveauMonde;
+                if (typeof data.niveauAfrique === 'number') niveauAfrique = data.niveauAfrique;
+
                 recalculerTotal();
-                if (typeof data.niveau === 'number') niveauActuel = data.niveau;
 
                 dernierScoreEnvoye = `${modeActuel}_${modeActuel === 'afrique' ? scoreAfrique : scoreMonde}`;
 
@@ -1332,7 +1368,8 @@
                 if (monEntree) {
                     const serveurMonde = monEntree.soloScoreMonde || 0;
                     const serveurAfrique = monEntree.soloScoreAfrique || 0;
-                    const niveauServeur = monEntree.niveau || 1;
+                    const niveauServeurMonde = monEntree.niveauMonde || 1;
+                    const niveauServeurAfrique = monEntree.niveauAfrique || 1;
 
                     let besoinSync = false;
 
@@ -1348,9 +1385,11 @@
                         besoinSync = true;
                     }
 
-                    recalculerTotal();
+                    // 🔥 Synchronisation des niveaux séparés
+                    niveauMonde = Math.max(niveauMonde, niveauServeurMonde);
+                    niveauAfrique = Math.max(niveauAfrique, niveauServeurAfrique);
 
-                    if (niveauServeur > niveauActuel) niveauActuel = niveauServeur;
+                    recalculerTotal();
 
                     if (besoinSync && socket && socket.connected) {
                         syncScoreEnCours = true;
@@ -1385,16 +1424,19 @@
                 console.log(`🏁 Partie terminée [${data.mode || modeActuel}] : +${data.scorePartie} pts`);
 
                 if (data.niveauChange) {
-                    afficherNotification(`🎉 Niveau ${data.niveau} atteint !`, 'success');
+                    afficherNotification(`🎉 Niveau atteint !`, 'success');
                 } else {
                     afficherNotification(`+${data.scorePartie} pts ! (total ${data.scoreTotal})`, 'success');
                 }
 
                 if (typeof data.soloScoreMonde === 'number') scoreMonde = Math.max(scoreMonde, data.soloScoreMonde);
                 if (typeof data.soloScoreAfrique === 'number') scoreAfrique = Math.max(scoreAfrique, data.soloScoreAfrique);
-                recalculerTotal();
+                
+                // 🔥 Synchronisation des niveaux séparés
+                if (typeof data.niveauMonde === 'number') niveauMonde = data.niveauMonde;
+                if (typeof data.niveauAfrique === 'number') niveauAfrique = data.niveauAfrique;
 
-                if (data.niveau > niveauActuel) niveauActuel = data.niveau;
+                recalculerTotal();
 
                 dernierScoreEnvoye = '';
 
@@ -1571,7 +1613,7 @@
         }
 
         // ========================================
-        // JOUEURS EN LIGNE — 🌎 Niv. X · score | 🌍 Niv. Y · score | ⭐ total
+        // JOUEURS EN LIGNE
         // ========================================
         function afficherJoueursEnLigne(joueurs) {
             if (!duelListe) return;
@@ -1839,7 +1881,7 @@
         }
 
         // ========================================
-        // CLASSEMENTS — 🌎 Niv. X · score / 🌍 Niv. Y · score / ⭐ total
+        // CLASSEMENTS
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
