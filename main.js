@@ -1,5 +1,6 @@
 // ========================================
-// 🔥 MAIN.JS - Score unique + sync serveur temps réel
+// 🔥 MAIN.JS - Scores séparés Monde / Afrique
+// Affichage côte à côte des niveaux
 // ========================================
 
 (function () {
@@ -220,8 +221,13 @@
     let indiceUtilise = false;
     let estEnChargement = false;
     let modeActuel = 'monde';
+
+    // 🔥 Scores séparés
+    let scoreMonde = 0;
+    let scoreAfrique = 0;
     let scoreTotal = 0;
     let niveauActuel = 1;
+
     let questionsDejaPosees = new Set();
     let reponsesParNiveau = {};
     let timerInterval = null;
@@ -253,11 +259,28 @@
     // 🔄 Flag anti-boucle
     let syncScoreEnCours = false;
 
-    // 📊 Index choisi pour la question actuelle
+    // 📊 Index choisi
     let dernierIndexChoisi = -1;
 
-    // 🔥 Anti-spam : dernière valeur envoyée au serveur
-    let dernierScoreEnvoye = -1;
+    // 🔥 Anti-spam
+    let dernierScoreEnvoye = '';
+
+    // ========================================
+    // HELPERS SCORE
+    // ========================================
+    function recalculerTotal() {
+        scoreTotal = (scoreMonde || 0) + (scoreAfrique || 0);
+        return scoreTotal;
+    }
+
+    function ajouterScoreMode(mode, points) {
+        if (mode === 'afrique') {
+            scoreAfrique += points;
+        } else {
+            scoreMonde += points;
+        }
+        recalculerTotal();
+    }
 
     // ========================================
     // SAUVEGARDE
@@ -265,6 +288,8 @@
     function sauvegarderPartie() {
         try {
             localStorage.setItem('quiz_niveau', niveauActuel);
+            localStorage.setItem('quiz_score_monde', scoreMonde);
+            localStorage.setItem('quiz_score_afrique', scoreAfrique);
             localStorage.setItem('quiz_score', scoreTotal);
             localStorage.setItem('quiz_mode', modeActuel);
             localStorage.setItem('quiz_questions', JSON.stringify(Array.from(questionsDejaPosees)));
@@ -274,12 +299,23 @@
     function chargerPartie() {
         try {
             const savedNiveau = localStorage.getItem('quiz_niveau');
+            const savedMonde = localStorage.getItem('quiz_score_monde');
+            const savedAfrique = localStorage.getItem('quiz_score_afrique');
             const savedScore = localStorage.getItem('quiz_score');
             const savedMode = localStorage.getItem('quiz_mode');
             const savedQuestions = localStorage.getItem('quiz_questions');
 
             if (savedNiveau) niveauActuel = parseInt(savedNiveau, 10);
-            if (savedScore) scoreTotal = parseInt(savedScore, 10);
+            if (savedMonde) scoreMonde = parseInt(savedMonde, 10);
+            if (savedAfrique) scoreAfrique = parseInt(savedAfrique, 10);
+
+            if (savedMonde === null && savedAfrique === null && savedScore) {
+                scoreMonde = parseInt(savedScore, 10);
+                scoreAfrique = 0;
+            }
+
+            recalculerTotal();
+
             if (savedMode && (savedMode === 'monde' || savedMode === 'afrique')) modeActuel = savedMode;
             if (savedQuestions) {
                 try { questionsDejaPosees = new Set(JSON.parse(savedQuestions)); } catch (e) { }
@@ -296,16 +332,22 @@
     }
 
     // ========================================
-    // 🔥 SYNC SCORE AU SERVEUR
+    // 🔥 SYNC SCORE
     // ========================================
     function syncScoreServeur() {
         if (!socket || !socket.connected) return;
-        if (scoreTotal === dernierScoreEnvoye) return;
-        if (!Number.isFinite(scoreTotal)) return;
+        if (!Number.isFinite(scoreMonde) || !Number.isFinite(scoreAfrique)) return;
 
-        dernierScoreEnvoye = scoreTotal;
-        socket.emit('solo_maj_score', { scoreTotal });
-        console.log(`📤 Sync serveur : ${scoreTotal} pts`);
+        const scoreDuMode = modeActuel === 'afrique' ? scoreAfrique : scoreMonde;
+        const cleCache = `${modeActuel}_${scoreDuMode}`;
+        if (cleCache === dernierScoreEnvoye) return;
+
+        dernierScoreEnvoye = cleCache;
+        socket.emit('solo_maj_score', {
+            scoreTotal: scoreDuMode,
+            mode: modeActuel
+        });
+        console.log(`📤 Sync [${modeActuel}] : ${scoreDuMode} pts (total = ${scoreTotal})`);
     }
 
     // ========================================
@@ -314,7 +356,7 @@
     function verifierDeblocageDefi() {
         if (serieActuelle >= palierActuel && !paliersAtteints.includes(palierActuel)) {
             paliersAtteints.push(palierActuel);
-            scoreTotal += BONUS_DEFI;
+            ajouterScoreMode(modeActuel, BONUS_DEFI);
             sauvegarderPartie();
             sauvegarderDefi();
             mettreAJourStats();
@@ -322,7 +364,6 @@
             palierActuel += PALIER_SUIVANT;
             sauvegarderDefi();
             mettreAJourStats();
-            // 🔥 Sync serveur
             syncScoreServeur();
             return true;
         }
@@ -527,11 +568,10 @@
             Haptic.medium();
             lancerConfettis();
             scoreNiveau += 10;
-            scoreTotal += 10;
+            ajouterScoreMode(modeActuel, 10);
             if (reponsesParNiveau[niveauActuel]) reponsesParNiveau[niveauActuel].correct++;
             serieActuelle++;
             verifierDeblocageDefi();
-            // 🔥 Sync serveur
             syncScoreServeur();
         } else if (indexChoisi >= 0) {
             SoundManager.incorrect();
@@ -602,7 +642,7 @@
         const ancienScoreNiveau = scoreNiveau;
         scoreNiveau = data.scoreTotal;
         const diff = scoreNiveau - ancienScoreNiveau;
-        scoreTotal += diff;
+        ajouterScoreMode(modeActuel, diff);
 
         if (reponsesParNiveau[niveauActuel]) {
             reponsesParNiveau[niveauActuel].correct = data.bonnes;
@@ -612,8 +652,6 @@
         mettreAJourStats();
         sauvegarderPartie();
         sauvegarderDefi();
-
-        // 🔥 Sync serveur à chaque réponse
         syncScoreServeur();
 
         if (data.terminee) {
@@ -657,7 +695,6 @@
             sauvegarderPartie();
             sauvegarderDefi();
             mettreAJourStats();
-            // 🔥 Sync serveur même si échec (score déjà gagné)
             syncScoreServeur();
             return;
         }
@@ -667,7 +704,7 @@
             Haptic.pattern();
             lancerConfettis(['#fdcb6e', '#ff6b6b', '#4a6cf7', '#00b894', '#6c5ce7']);
             if (questionText) questionText.textContent = `🏆 PARFAIT ! 10/10 ! Score : ${scoreNiveau} pts - Passage au niveau ${niveauActuel + 1}`;
-            scoreTotal += 20;
+            ajouterScoreMode(modeActuel, 20);
             afficherNotification('🏆 Niveau parfait ! +20 pts bonus !', 'success');
             niveauActuel++;
             mettreAJourInterface();
@@ -685,8 +722,6 @@
         sauvegarderPartie();
         sauvegarderDefi();
         mettreAJourStats();
-
-        // 🔥 Sync serveur après la fin du niveau
         syncScoreServeur();
     }
 
@@ -935,6 +970,8 @@
             sauvegarderPartie();
             sauvegarderDefi();
             arreterTimer();
+
+            console.log(`🔄 Mode changé : ${mode} (Monde=${scoreMonde}, Afrique=${scoreAfrique}, Total=${scoreTotal})`);
         }
 
         if (btnModeMonde) btnModeMonde.addEventListener('click', (e) => { e.preventDefault(); changerMode('monde'); });
@@ -1025,7 +1062,6 @@
                 estEnJeu = false;
                 estEnChargement = false;
 
-                // 🔥 Sync finale avant de quitter
                 syncScoreServeur();
 
                 const mainGameEl = document.getElementById('mainGame');
@@ -1067,7 +1103,6 @@
                 soloContent.classList.remove('active');
                 soloContent.style.display = 'none';
                 if (socket) {
-                    // 🔥 Sync avant d'afficher le classement
                     syncScoreServeur();
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
@@ -1239,17 +1274,23 @@
             socket.on('mon_profil', (profil) => {
                 console.log('👤 Profil reçu :', profil);
 
-                const scoreServeur = profil.soloScore || 0;
+                const serveurMonde = profil.soloScoreMonde || 0;
+                const serveurAfrique = profil.soloScoreAfrique || 0;
                 const niveauServeur = profil.niveau || 1;
 
-                // 🔥 On prend le MAX entre local et serveur
-                if (scoreServeur > scoreTotal) {
-                    scoreTotal = scoreServeur;
-                    dernierScoreEnvoye = scoreServeur;
-                } else if (scoreTotal > scoreServeur) {
-                    // Le local est en avance → on pousse au serveur
-                    syncScoreServeur();
+                if (serveurMonde > scoreMonde) {
+                    scoreMonde = serveurMonde;
+                } else if (scoreMonde > serveurMonde && socket && socket.connected) {
+                    socket.emit('solo_maj_score', { scoreTotal: scoreMonde, mode: 'monde' });
                 }
+
+                if (serveurAfrique > scoreAfrique) {
+                    scoreAfrique = serveurAfrique;
+                } else if (scoreAfrique > serveurAfrique && socket && socket.connected) {
+                    socket.emit('solo_maj_score', { scoreTotal: scoreAfrique, mode: 'afrique' });
+                }
+
+                recalculerTotal();
 
                 if (niveauServeur > niveauActuel) {
                     niveauActuel = niveauServeur;
@@ -1258,12 +1299,24 @@
                 sauvegarderPartie();
                 mettreAJourInterface();
                 mettreAJourStats();
+
+                console.log(`👤 Niveaux : 🌎 ${profil.niveauMonde || 1} / 🌍 ${profil.niveauAfrique || 1} | Total ${scoreTotal}`);
             });
 
             // Confirmation de mise à jour du score
             socket.on('solo_score_maj', (data) => {
-                console.log(`✅ Score confirmé par serveur : ${data.scoreTotal} pts`);
-                dernierScoreEnvoye = data.scoreTotal;
+                console.log(`✅ Score confirmé [${modeActuel}] : ${data.scoreTotal} pts (M:${data.soloScoreMonde} / A:${data.soloScoreAfrique})`);
+
+                if (typeof data.soloScoreMonde === 'number') scoreMonde = data.soloScoreMonde;
+                if (typeof data.soloScoreAfrique === 'number') scoreAfrique = data.soloScoreAfrique;
+                recalculerTotal();
+                if (typeof data.niveau === 'number') niveauActuel = data.niveau;
+
+                dernierScoreEnvoye = `${modeActuel}_${modeActuel === 'afrique' ? scoreAfrique : scoreMonde}`;
+
+                sauvegarderPartie();
+                mettreAJourStats();
+                mettreAJourInterface();
             });
 
             socket.on('joueurs_en_ligne', (joueurs) => afficherJoueursEnLigne(joueurs));
@@ -1277,27 +1330,42 @@
                 const monEntree = classements.find(c => c.pseudo === pseudo);
 
                 if (monEntree) {
-                    const scoreServeur = monEntree.soloScore || 0;
+                    const serveurMonde = monEntree.soloScoreMonde || 0;
+                    const serveurAfrique = monEntree.soloScoreAfrique || 0;
                     const niveauServeur = monEntree.niveau || 1;
 
-                    if (scoreServeur > scoreTotal) {
-                        // Le serveur est en avance → on adopte sa valeur
+                    let besoinSync = false;
+
+                    if (serveurMonde > scoreMonde) {
+                        scoreMonde = serveurMonde;
+                    } else if (scoreMonde > serveurMonde) {
+                        besoinSync = true;
+                    }
+
+                    if (serveurAfrique > scoreAfrique) {
+                        scoreAfrique = serveurAfrique;
+                    } else if (scoreAfrique > serveurAfrique) {
+                        besoinSync = true;
+                    }
+
+                    recalculerTotal();
+
+                    if (niveauServeur > niveauActuel) niveauActuel = niveauServeur;
+
+                    if (besoinSync && socket && socket.connected) {
                         syncScoreEnCours = true;
-                        console.log(`🔄 Sync serveur → client : ${scoreTotal} → ${scoreServeur}`);
-                        scoreTotal = scoreServeur;
-                        niveauActuel = niveauServeur;
-                        dernierScoreEnvoye = scoreServeur;
-                        sauvegarderPartie();
-                        mettreAJourStats();
-                        mettreAJourInterface();
-                        setTimeout(() => { syncScoreEnCours = false; }, 2000);
-                    } else if (scoreTotal > scoreServeur && socket && socket.connected) {
-                        // Le local est en avance → on pousse au serveur
-                        syncScoreEnCours = true;
-                        console.log(`🔄 Sync client → serveur : ${scoreServeur} → ${scoreTotal}`);
-                        syncScoreServeur();
+                        if (scoreMonde > serveurMonde) {
+                            socket.emit('solo_maj_score', { scoreTotal: scoreMonde, mode: 'monde' });
+                        }
+                        if (scoreAfrique > serveurAfrique) {
+                            socket.emit('solo_maj_score', { scoreTotal: scoreAfrique, mode: 'afrique' });
+                        }
                         setTimeout(() => { syncScoreEnCours = false; }, 2000);
                     }
+
+                    sauvegarderPartie();
+                    mettreAJourStats();
+                    mettreAJourInterface();
                 }
             });
 
@@ -1314,7 +1382,7 @@
             });
 
             socket.on('solo_termine', (data) => {
-                console.log(`🏁 Partie terminée : +${data.scorePartie} pts (total ${data.scoreTotal})`);
+                console.log(`🏁 Partie terminée [${data.mode || modeActuel}] : +${data.scorePartie} pts`);
 
                 if (data.niveauChange) {
                     afficherNotification(`🎉 Niveau ${data.niveau} atteint !`, 'success');
@@ -1322,20 +1390,18 @@
                     afficherNotification(`+${data.scorePartie} pts ! (total ${data.scoreTotal})`, 'success');
                 }
 
-                // 🔥 On prend le MAX : le local peut être plus à jour
-                if (data.scoreTotal > scoreTotal) {
-                    scoreTotal = data.scoreTotal;
-                }
-                if (data.niveau > niveauActuel) {
-                    niveauActuel = data.niveau;
-                }
-                dernierScoreEnvoye = data.scoreTotal;
+                if (typeof data.soloScoreMonde === 'number') scoreMonde = Math.max(scoreMonde, data.soloScoreMonde);
+                if (typeof data.soloScoreAfrique === 'number') scoreAfrique = Math.max(scoreAfrique, data.soloScoreAfrique);
+                recalculerTotal();
+
+                if (data.niveau > niveauActuel) niveauActuel = data.niveau;
+
+                dernierScoreEnvoye = '';
 
                 mettreAJourInterface();
                 mettreAJourStats();
                 sauvegarderPartie();
 
-                // Sync finale
                 syncScoreServeur();
             });
 
@@ -1505,7 +1571,7 @@
         }
 
         // ========================================
-        // JOUEURS EN LIGNE
+        // JOUEURS EN LIGNE — 🌎 Niv. X · score | 🌍 Niv. Y · score | ⭐ total
         // ========================================
         function afficherJoueursEnLigne(joueurs) {
             if (!duelListe) return;
@@ -1519,7 +1585,13 @@
                 <div class="duel-item">
                     <div>
                         <div class="duel-pseudo">${escapeHtml(j.pseudo)}</div>
-                        <div class="duel-infos">Niv. ${j.niveau} · ⭐ ${j.score} pts</div>
+                        <div class="duel-infos">
+                            🌎 Niv. ${j.niveauMonde || 1} · ${j.scoreMonde || 0} pts
+                            &nbsp;|&nbsp;
+                            🌍 Niv. ${j.niveauAfrique || 1} · ${j.scoreAfrique || 0} pts
+                            &nbsp;|&nbsp;
+                            ⭐ ${j.score || 0} total
+                        </div>
                     </div>
                     ${estEnDuel ? '<span class="duel-statut">⚔️ En duel</span>' : `
                         <button class="btn-defier" data-joueur-id="${escapeHtml(j.id)}">
@@ -1734,10 +1806,9 @@
                 duelGagnant.textContent = '🏆 Vous avez gagné ! 🎉';
                 SoundManager.victory();
                 lancerConfettis(['#fdcb6e', '#ffd93d', '#ff6b6b', '#4a6cf7']);
-                scoreTotal += 30;
+                ajouterScoreMode(modeActuel, 30);
                 sauvegarderPartie();
                 mettreAJourStats();
-                // 🔥 Sync serveur (bonus victoire duel)
                 syncScoreServeur();
                 setTimeout(() => afficherNotification('🎉 Vous avez gagné le duel ! +30 pts', 'success'), 500);
             } else {
@@ -1768,7 +1839,7 @@
         }
 
         // ========================================
-        // CLASSEMENTS
+        // CLASSEMENTS — 🌎 Niv. X · score / 🌍 Niv. Y · score / ⭐ total
         // ========================================
         function afficherClassements(classements) {
             if (!classementListe) return;
@@ -1811,7 +1882,11 @@
                                 <span class="defaites">💔 ${j.defaites || 0}</span>
                                 <span class="winrate">📊 ${j.winRate || 0}%</span>
                             ` : `
-                                <span>⭐ ${j.soloScore || 0}</span>
+                                <span style="display:flex;flex-direction:column;align-items:flex-end;line-height:1.3;font-size:12px;">
+                                    <span>🌎 Niv. ${j.niveauMonde || 1} · ${j.soloScoreMonde || 0} pts</span>
+                                    <span>🌍 Niv. ${j.niveauAfrique || 1} · ${j.soloScoreAfrique || 0} pts</span>
+                                    <strong>⭐ ${j.soloScore || 0} total</strong>
+                                </span>
                             `}
                         </div>
                     </div>
@@ -1842,7 +1917,6 @@
         if (btnDuel) {
             btnDuel.addEventListener('click', function () {
                 if (socket) {
-                    // 🔥 Sync avant de demander
                     syncScoreServeur();
                     socket.emit('demander_joueurs');
                     socket.emit('demander_classements');
@@ -1867,7 +1941,6 @@
                 this.classList.add('active');
                 tabClassementActif = this.dataset.tab;
                 classementAffiche = 3;
-                // 🔥 Sync avant de demander
                 syncScoreServeur();
                 if (socket) socket.emit('demander_classements');
             });
@@ -1904,13 +1977,14 @@
         window.addEventListener('beforeunload', function () {
             sauvegarderPartie();
             sauvegarderDefi();
-            // 🔥 Sync finale (peut ne pas aboutir, mais on essaie)
             if (socket && socket.connected) {
-                socket.emit('solo_maj_score', { scoreTotal });
+                socket.emit('solo_maj_score', {
+                    scoreTotal: modeActuel === 'afrique' ? scoreAfrique : scoreMonde,
+                    mode: modeActuel
+                });
             }
         });
 
-        // 🔥 Sync périodique toutes les 30s (sécurité)
         setInterval(() => {
             if (estEnJeu && socket && socket.connected) {
                 syncScoreServeur();
