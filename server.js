@@ -1,6 +1,6 @@
 // ========================================
-// 🔥 SERVEUR - AryseX Quiz Duel (SÉCURISÉ)
-// jsonbin.io + web-push + JWT + validation serveur
+// 🔥 SERVEUR - AryseX Quiz Duel
+// Score unique + JWT + validation serveur
 // ========================================
 
 const express = require('express');
@@ -15,7 +15,7 @@ const app = express();
 const server = http.createServer(app);
 
 // ========================================
-// 🌐 CORS - DOMAINES AUTORISÉS
+// 🌐 CORS
 // ========================================
 const ORIGINES_AUTORISEES = [
     'https://arysex.vercel.app',
@@ -37,7 +37,7 @@ app.use(express.json({ limit: '100kb' }));
 app.use(express.static('.'));
 
 // ========================================
-// 🔔 CONFIGURATION WEB-PUSH
+// 🔔 WEB-PUSH
 // ========================================
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC || 'BCm3hviRAjgIirkr81ce66VYPUzD7L3RBmnHuUFJ2HXEFJL9hCt1Xh-pFq6agQLlGHQdHs7D0vFacEPgg5pC7Xo';
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE || 'Rbw9F5qxXgzCVmIuip6aCheTRPRcp2LJ6YFkoJckz9s';
@@ -46,7 +46,7 @@ const VAPID_EMAIL = process.env.VAPID_EMAIL || 'mailto:contact@arysex.com';
 webpush.setVapidDetails(VAPID_EMAIL, VAPID_PUBLIC, VAPID_PRIVATE);
 
 // ========================================
-// 🔐 AUTHENTIFICATION JWT
+// 🔐 JWT
 // ========================================
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-NE-PAS-UTILISER-EN-PROD';
 const JWT_TTL = process.env.JWT_TTL || '30d';
@@ -68,13 +68,12 @@ function verifierToken(token) {
 }
 
 // ========================================
-// 🔧 NORMALISATION PSEUDO
+// 🔧 NORMALISATION
 // ========================================
 function normaliserPseudo(pseudo) {
     if (!pseudo) return '';
     const trimmed = String(pseudo).trim();
     if (trimmed.length === 0) return '';
-    // Autoriser uniquement lettres, chiffres, tirets et underscores
     const nettoye = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 20);
     if (nettoye.length === 0) return '';
     return nettoye.charAt(0).toUpperCase() + nettoye.slice(1).toLowerCase();
@@ -97,12 +96,17 @@ let meta = {
 let envoiNotifEnCours = false;
 
 // ========================================
-// 💾 JSONBIN.IO
+// 💾 JSONBIN
 // ========================================
 const JSONBIN_BIN_ID = process.env.JSONBIN_BIN_ID || 'TON_BIN_ID_ICI';
 const JSONBIN_API_KEY = process.env.JSONBIN_API_KEY || 'TA_MASTER_KEY_ICI';
 const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 
+// ========================================
+// 🔄 MIGRATION : un seul score + un seul niveau
+// ========================================
+// Ce bloc récupère les anciens champs séparés et les remet dans soloScore / niveau.
+// À chaque sauvegarde, l'ancien format disparaît automatiquement.
 async function chargerDonnees() {
     try {
         const res = await fetch(`${JSONBIN_URL}/latest`, {
@@ -125,28 +129,80 @@ async function chargerDonnees() {
             meta = { derniereNotif10h: null, derniereNotif16h: null };
         }
 
+        // 🔧 Normalisation + migration vers format simple
         const pseudosNormalises = {};
         for (const [pseudo, stats] of Object.entries(classements)) {
             const normalise = normaliserPseudo(pseudo);
-            if (!pseudosNormalises[normalise]) {
-                pseudosNormalises[normalise] = stats;
+
+            // Récupérer le meilleur score possible
+            // (ancien format simple OU nouveau format Monde/Afrique)
+            let soloScore = 0;
+            if (typeof stats.soloScore === 'number' && stats.soloScore > 0) {
+                soloScore = stats.soloScore;
             } else {
-                const existant = pseudosNormalises[normalise];
+                const monde = stats.soloScoreMonde || 0;
+                const afrique = stats.soloScoreAfrique || 0;
+                soloScore = Math.max(monde, afrique);
+            }
+
+            let niveau = 1;
+            if (typeof stats.niveau === 'number' && stats.niveau > 1) {
+                niveau = stats.niveau;
+            } else {
+                const nMonde = stats.niveauMonde || 1;
+                const nAfrique = stats.niveauAfrique || 1;
+                niveau = Math.max(nMonde, nAfrique);
+            }
+
+            const corrigees = {
+                victoires: stats.victoires || 0,
+                defaites: stats.defaites || 0,
+                egalites: stats.egalites || 0,
+                parties: stats.parties || 0,
+                meilleurScore: stats.meilleurScore || 0,
+                soloScore,
+                niveau
+            };
+
+            if (!pseudosNormalises[normalise]) {
+                pseudosNormalises[normalise] = corrigees;
+            } else {
+                const e = pseudosNormalises[normalise];
                 pseudosNormalises[normalise] = {
-                    victoires: Math.max(existant.victoires || 0, stats.victoires || 0),
-                    defaites: Math.max(existant.defaites || 0, stats.defaites || 0),
-                    egalites: Math.max(existant.egalites || 0, stats.egalites || 0),
-                    parties: Math.max(existant.parties || 0, stats.parties || 0),
-                    meilleurScore: Math.max(existant.meilleurScore || 0, stats.meilleurScore || 0),
-                    soloScore: Math.max(existant.soloScore || 0, stats.soloScore || 0)
+                    victoires: Math.max(e.victoires, corrigees.victoires),
+                    defaites: Math.max(e.defaites, corrigees.defaites),
+                    egalites: Math.max(e.egalites, corrigees.egalites),
+                    parties: Math.max(e.parties, corrigees.parties),
+                    meilleurScore: Math.max(e.meilleurScore, corrigees.meilleurScore),
+                    soloScore: Math.max(e.soloScore, corrigees.soloScore),
+                    niveau: Math.max(e.niveau, corrigees.niveau)
                 };
                 console.log(`🔧 Fusion doublon : "${pseudo}" → "${normalise}"`);
             }
         }
         classements = pseudosNormalises;
 
+        // 💾 Sauvegarder immédiatement pour figer le nouveau format
+        // (comme ça, plus d'ambiguïté au prochain redémarrage)
+        await fetch(JSONBIN_URL, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Master-Key': JSONBIN_API_KEY
+            },
+            body: JSON.stringify({ classements, abonnementsPush, meta })
+        });
+
         console.log(`📂 ${Object.keys(classements).length} joueurs chargés`);
         console.log(`📬 ${Object.keys(abonnementsPush).length} abonnements push chargés`);
+
+        // Log des top 5 pour vérifier
+        const top5 = Object.entries(classements)
+            .map(([pseudo, s]) => ({ pseudo, score: s.soloScore || 0, niveau: s.niveau || 1 }))
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 5);
+        console.log('🏆 Top 5 scores restaurés :');
+        top5.forEach((j, i) => console.log(`   ${i + 1}. ${j.pseudo} — ${j.score} pts (niv. ${j.niveau})`));
     } catch (e) {
         console.error('❌ Erreur chargement jsonbin:', e.message);
         classements = {};
@@ -297,7 +353,6 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-// 🔐 GÉNÉRATION DE TOKEN
 app.post('/api/auth', (req, res) => {
     const { pseudo } = req.body || {};
     if (!pseudo || typeof pseudo !== 'string') {
@@ -342,7 +397,25 @@ app.post('/api/notifier-special', async (req, res) => {
 });
 
 // ========================================
-// 🔐 MIDDLEWARE SOCKET.IO
+// 🧹 ADMIN
+// ========================================
+app.get('/api/admin/scores-list', (req, res) => {
+    if (req.headers['x-admin-key'] !== process.env.ADMIN_KEY) {
+        return res.status(403).json({ error: 'Non autorisé' });
+    }
+    const liste = Object.entries(classements)
+        .map(([pseudo, s]) => ({
+            pseudo,
+            soloScore: s.soloScore || 0,
+            niveau: s.niveau || 1,
+            victoires: s.victoires || 0
+        }))
+        .sort((a, b) => b.soloScore - a.soloScore);
+    res.json(liste);
+});
+
+// ========================================
+// 🔐 MIDDLEWARE SOCKET
 // ========================================
 io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -363,28 +436,31 @@ io.use((socket, next) => {
 });
 
 // ========================================
-// 🔌 CONNEXION SOCKET
+// 🔌 SOCKET
 // ========================================
 io.on('connection', (socket) => {
     console.log(`🔗 Connecté: ${socket.id} (${socket.pseudoVerifie})`);
 
-    // ========================================
-    // 👤 ENREGISTRER (pseudo vient du JWT)
-    // ========================================
-    socket.on('enregistrer', (data) => {
+    // ====== ENREGISTRER ======
+    socket.on('enregistrer', () => {
         const pseudo = socket.pseudoVerifie;
         if (!pseudo) return;
 
-        const stats = classements[pseudo] || {
-            victoires: 0, defaites: 0, egalites: 0,
-            parties: 0, meilleurScore: 0, soloScore: 0
-        };
+        if (!classements[pseudo]) {
+            classements[pseudo] = {
+                victoires: 0, defaites: 0, egalites: 0,
+                parties: 0, meilleurScore: 0,
+                soloScore: 0, niveau: 1
+            };
+            sauvegarderDonnees();
+        }
 
+        const stats = classements[pseudo];
         const existant = Object.values(joueurs).find(j => j.pseudo === pseudo);
 
         joueurs[socket.id] = {
             pseudo,
-            niveau: 1,
+            niveau: stats.niveau || 1,
             score: stats.soloScore || 0,
             enLigne: true,
             enDuel: false,
@@ -397,28 +473,31 @@ io.on('connection', (socket) => {
             partieSolo: null
         };
 
-        if (!classements[pseudo]) {
-            classements[pseudo] = { ...stats };
-            sauvegarderDonnees();
-        }
-
         io.emit('joueurs_en_ligne', getJoueursEnLigne());
         io.emit('classements', getClassements());
-        console.log(`✅ ${pseudo} connecté (JWT)`);
+
+        socket.emit('mon_profil', {
+            pseudo,
+            niveau: stats.niveau || 1,
+            soloScore: stats.soloScore || 0,
+            victoires: stats.victoires || 0,
+            defaites: stats.defaites || 0,
+            parties: stats.parties || 0
+        });
+
+        console.log(`✅ ${pseudo} connecté (niveau ${stats.niveau || 1}, ${stats.soloScore || 0} pts)`);
 
         verifierNotificationsJour().catch(e =>
             console.error('❌ Erreur notif connexion:', e.message)
         );
     });
 
-    // ========================================
-    // 🎮 SOLO : DÉMARRER
-    // ========================================
+    // ====== SOLO : DÉMARRER ======
     socket.on('solo_demarrer', (data) => {
         const joueur = joueurs[socket.id];
         if (!joueur) return;
 
-        const { questions } = data;
+        const { questions, mode, niveau } = data;
         if (!Array.isArray(questions) || questions.length === 0) return;
         if (questions.length > 30) return;
 
@@ -434,16 +513,16 @@ io.on('connection', (socket) => {
             mauvaises: 0,
             dejaRepondu: new Set(),
             terminee: false,
+            mode: mode || 'monde',
+            niveau: niveau || 1,
             commencee: Date.now()
         };
 
-        console.log(`🎮 ${joueur.pseudo} démarre solo (${questions.length} questions)`);
+        console.log(`🎮 ${joueur.pseudo} démarre solo [${mode}] niveau ${niveau}`);
         socket.emit('solo_pret', { total: questions.length });
     });
 
-    // ========================================
-    // 🎮 SOLO : RÉPONDRE
-    // ========================================
+    // ====== SOLO : RÉPONDRE ======
     socket.on('solo_repondre', (data) => {
         const joueur = joueurs[socket.id];
         if (!joueur || !joueur.partieSolo) return;
@@ -487,9 +566,7 @@ io.on('connection', (socket) => {
         });
     });
 
-    // ========================================
-    // 🎮 SOLO : TERMINER
-    // ========================================
+    // ====== SOLO : TERMINER ======
     socket.on('solo_terminer', () => {
         const joueur = joueurs[socket.id];
         if (!joueur || !joueur.partieSolo) return;
@@ -501,36 +578,48 @@ io.on('connection', (socket) => {
         if (!classements[joueur.pseudo]) {
             classements[joueur.pseudo] = {
                 victoires: 0, defaites: 0, egalites: 0,
-                parties: 0, meilleurScore: 0, soloScore: 0
+                parties: 0, meilleurScore: 0,
+                soloScore: 0, niveau: 1
             };
         }
 
-        const ancienScore = classements[joueur.pseudo].soloScore || 0;
-        let nouveauRecord = false;
+        const stats = classements[joueur.pseudo];
 
-        if (partie.score > ancienScore) {
-            classements[joueur.pseudo].soloScore = partie.score;
-            joueur.score = partie.score;
-            nouveauRecord = true;
-            console.log(`🏆 ${joueur.pseudo} : record = ${partie.score}`);
+        // Cumul
+        const ancienScore = stats.soloScore || 0;
+        const nouveauScore = ancienScore + partie.score;
+        stats.soloScore = nouveauScore;
+
+        // Validation niveau (10/10 → +1)
+        let niveauChange = false;
+        if (partie.bonnes === 10 && partie.niveau === (stats.niveau || 1)) {
+            stats.niveau = (stats.niveau || 1) + 1;
+            niveauChange = true;
+            console.log(`🎉 ${joueur.pseudo} passe niveau ${stats.niveau}`);
         }
+
+        joueur.score = stats.soloScore;
+        joueur.niveau = stats.niveau;
 
         sauvegarderDonnees();
         io.emit('classements', getClassements());
+        io.emit('joueurs_en_ligne', getJoueursEnLigne());
 
         socket.emit('solo_termine', {
-            score: partie.score,
+            scorePartie: partie.score,
+            scoreTotal: nouveauScore,
             bonnes: partie.bonnes,
             mauvaises: partie.mauvaises,
-            nouveauRecord
+            niveau: stats.niveau || 1,
+            niveauChange
         });
+
+        console.log(`📈 ${joueur.pseudo} : +${partie.score} pts (total ${nouveauScore}, niveau ${stats.niveau})`);
 
         joueur.partieSolo = null;
     });
 
-    // ========================================
-    // 📊 DEMANDES
-    // ========================================
+    // ====== DEMANDES ======
     socket.on('demander_joueurs', () => {
         socket.emit('joueurs_en_ligne', getJoueursEnLigne());
     });
@@ -539,9 +628,7 @@ io.on('connection', (socket) => {
         socket.emit('classements', getClassements());
     });
 
-    // ========================================
-    // 🔔 PUSH
-    // ========================================
+    // ====== PUSH ======
     socket.on('enregistrer_push', (data) => {
         const { subscription } = data;
         const pseudo = socket.pseudoVerifie;
@@ -566,9 +653,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // ========================================
-    // ⚔️ INVITATION DUEL
-    // ========================================
+    // ====== DUEL ======
     socket.on('inviter_duel', (data) => {
         const { adversaireId, questions } = data;
         const joueur = joueurs[socket.id];
@@ -687,9 +772,6 @@ io.on('connection', (socket) => {
         console.log(`⚔️ ${inviteur.pseudo} vs ${adversaire.pseudo}`);
     });
 
-    // ========================================
-    // ✅ RÉPONSES DUEL (déjà validées serveur)
-    // ========================================
     socket.on('reponse_duel', (data) => {
         const { salleId, indexQuestion, reponse, tempsRestant } = data;
         const salle = salles[salleId];
@@ -776,22 +858,24 @@ io.on('connection', (socket) => {
                 joueur2.egalites++;
             }
 
-            classements[joueur1.pseudo] = {
+            // Mise à jour sélective (ne PAS écraser les scores solo)
+            if (!classements[joueur1.pseudo]) classements[joueur1.pseudo] = {};
+            if (!classements[joueur2.pseudo]) classements[joueur2.pseudo] = {};
+
+            Object.assign(classements[joueur1.pseudo], {
                 victoires: joueur1.victoires,
                 defaites: joueur1.defaites,
                 egalites: joueur1.egalites,
                 parties: joueur1.parties,
-                meilleurScore: joueur1.meilleurScore,
-                soloScore: classements[joueur1.pseudo]?.soloScore || 0
-            };
-            classements[joueur2.pseudo] = {
+                meilleurScore: joueur1.meilleurScore
+            });
+            Object.assign(classements[joueur2.pseudo], {
                 victoires: joueur2.victoires,
                 defaites: joueur2.defaites,
                 egalites: joueur2.egalites,
                 parties: joueur2.parties,
-                meilleurScore: joueur2.meilleurScore,
-                soloScore: classements[joueur2.pseudo]?.soloScore || 0
-            };
+                meilleurScore: joueur2.meilleurScore
+            });
 
             sauvegarderDonnees();
 
@@ -826,9 +910,7 @@ io.on('connection', (socket) => {
         io.emit('classements', getClassements());
     }
 
-    // ========================================
-    // 📊 HELPERS
-    // ========================================
+    // ====== HELPERS ======
     function getClassements() {
         const result = [];
         for (const [pseudo, stats] of Object.entries(classements)) {
@@ -841,6 +923,7 @@ io.on('connection', (socket) => {
                 parties: stats.parties || 0,
                 meilleurScore: stats.meilleurScore || 0,
                 soloScore: stats.soloScore || 0,
+                niveau: stats.niveau || 1,
                 enLigne,
                 winRate: stats.parties > 0 ? Math.round((stats.victoires / stats.parties) * 100) : 0
             });
@@ -860,8 +943,8 @@ io.on('connection', (socket) => {
                 result.push({
                     id,
                     pseudo: data.pseudo,
-                    niveau: data.niveau,
-                    score: data.score,
+                    niveau: stats.niveau || 1,
+                    score: stats.soloScore || 0,
                     victoires: stats.victoires || 0,
                     defaites: stats.defaites || 0,
                     parties: stats.parties || 0
@@ -871,9 +954,7 @@ io.on('connection', (socket) => {
         return result;
     }
 
-    // ========================================
-    // 👋 DISCONNECT
-    // ========================================
+    // ====== DISCONNECT ======
     socket.on('disconnect', () => {
         const joueur = joueurs[socket.id];
         if (joueur) {
