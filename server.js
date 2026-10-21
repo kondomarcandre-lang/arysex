@@ -232,6 +232,31 @@ app.post('/api/notifier', async (req, res) => {
     }
 });
 
+// ========================================
+// 📢 NOTIFICATION SPÉCIALE À TOUS
+// ========================================
+app.post('/api/notifier-special', async (req, res) => {
+    // On récupère les infos envoyées depuis la console
+    const { titre, message, url } = req.body || {};
+    
+    // Valeurs par défaut si jamais tu oublies de les mettre
+    const titreNotif = titre || '📢 Info AryseX Quiz';
+    const messageNotif = message || 'Nouvelle info disponible !';
+    
+    console.log(`🎯 Notification spéciale : "${titreNotif}"`);
+    
+    // On envoie à TOUS les abonnés
+    const resultat = await envoyerNotificationATous(titreNotif, messageNotif, url || '/');
+    
+    // On répond à la console
+    res.json({ 
+        success: true, 
+        titre: titreNotif,
+        message: messageNotif,
+        result: resultat 
+    });
+});
+
 app.post('/api/test-cron', async (req, res) => {
     console.log('🧪 Test manuel du cron...');
     const result = await envoyerNotificationATous(
